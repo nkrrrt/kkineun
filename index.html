@@ -35,7 +35,7 @@
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <link rel="stylesheet" href="styles.css?v=20260831e" />
+  <link rel="stylesheet" href="styles.css?v=20260831f" />
 </head>
 <body>
 
@@ -161,10 +161,17 @@
 
     <div class="section-title">월 주기</div>
     <div class="card set-group">
-      <label class="field" style="margin: 12px 0 8px">
-        <span>한 달의 시작 날짜</span>
-        <select id="set-start-day"></select>
-      </label>
+      <div class="cycle">
+        <label class="field">
+          <span>시작일</span>
+          <select id="set-start-day"></select>
+        </label>
+        <div class="cycle-tie" aria-hidden="true">~</div>
+        <label class="field">
+          <span>종료일</span>
+          <select id="set-end-day"></select>
+        </label>
+      </div>
       <div class="help-box" id="start-day-note"></div>
     </div>
 
@@ -328,7 +335,7 @@
 </dialog>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="config.js?v=20260831e"></script>
-<script src="app.js?v=20260831e"></script>
+<script src="config.js?v=20260831f"></script>
+<script src="app.js?v=20260831f"></script>
 </body>
 </html>

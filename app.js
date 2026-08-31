@@ -805,34 +805,79 @@ function renderSettings() {
   renderAddForm();
 }
 
-function renderStartDay() {
-  var sel = $('#set-start-day');
-  if (!sel.options.length) {
-    var html = '';
+/**
+ * 한 달의 시작일과 종료일.
+ *
+ * 둘은 붙어 있는 값이다. 24일에 시작하면 23일에 끝난다. 따로 정하게 두면 그
+ * 사이에 어느 달에도 안 잡히는 빈 날이 생기고, 그 날 쓴 돈이 사라진 것처럼
+ * 보인다. 그래서 한쪽을 고치면 다른 쪽이 따라온다.
+ */
+function endDayOf(startDay) {
+  return startDay <= 1 ? 0 : startDay - 1;
+}
+
+function fillDays(sel, kind) {
+  if (sel.options.length) return;
+  var html = '';
+  if (kind === 'end') {
+    html += '<option value="0">말일</option>';
+    for (var e = 1; e <= 30; e++) html += '<option value="' + e + '">' + e + '일</option>';
+  } else {
     for (var d = 1; d <= 31; d++) {
-      html += '<option value="' + d + '">' + d + '일' + (d === 1 ? ' (달력과 같음)' : '') + '</option>';
+      html += '<option value="' + d + '">' + d + '일' + (d === 1 ? ' (1일)' : '') + '</option>';
     }
-    sel.innerHTML = html;
-    sel.addEventListener('change', saveStartDay);
   }
-  sel.value = String(state.settings.startDay);
+  sel.innerHTML = html;
+}
+
+function renderStartDay() {
+  var start = $('#set-start-day');
+  var end = $('#set-end-day');
+
+  fillDays(start, 'start');
+  fillDays(end, 'end');
+  if (!start.dataset.wired) {
+    start.addEventListener('change', function () {
+      saveCycle({ startDay: Number(start.value) });
+    });
+    end.addEventListener('change', function () {
+      saveCycle({ endDay: Number(end.value) });
+    });
+    start.dataset.wired = '1';
+  }
+
+  var day = state.settings.startDay;
+  start.value = String(day);
+  end.value = String(endDayOf(day));
 
   var note = $('#start-day-note');
-  if (state.settings.startDay <= 1) {
+  if (day <= 1) {
     note.innerHTML = '지금은 <b>달력 그대로</b>예요. 8월은 8월 1일 ~ 8월 31일.<br />' +
-      '월급날이 24일이면 <b>24일</b>로 바꿔보세요.';
+      '월급날이 24일이면 시작일을 <b>24일</b>로 바꿔보세요.';
   } else {
-    note.innerHTML = '<b>' + state.settings.startDay + '일</b>부터 한 달로 세요.<br />' +
+    note.innerHTML = '<b>' + day + '일</b>부터 <b>' + (day - 1) + '일</b>까지를 한 달로 세요.<br />' +
       '지금 보는 <b>' + monthLabel(state.month) + '</b>은 <b>' + rangeLabel() + '</b>.<br />' +
-      '<span class="muted">지난 기록은 그대로 있고 묶는 기준만 바뀌어요.</span>';
+      '<span class="muted">둘 중 하나를 고치면 나머지가 따라옵니다. 빈 날이 생기면 ' +
+      '그날 쓴 돈이 어느 달에도 안 잡히거든요.</span>';
   }
 }
 
-function saveStartDay() {
-  var value = Number($('#set-start-day').value);
-  withBusy(call('updateSettings', { startDay: value, month: state.month }))
-    .then(function (d) { apply(d); toast(value <= 1 ? '달력 기준으로 바꿨어요' : value + '일 시작으로 바꿨어요'); })
-    ['catch'](function (e) { toast(e.message); $('#set-start-day').value = String(state.settings.startDay); });
+function saveCycle(change) {
+  var payload = { month: state.month };
+  for (var k in change) if (Object.prototype.hasOwnProperty.call(change, k)) payload[k] = change[k];
+
+  withBusy(call('updateSettings', payload))
+    .then(function (d) {
+      apply(d);
+      renderStartDay();
+      toast(d.settings.startDay <= 1
+        ? '달력 기준으로 바꿨어요'
+        : d.settings.startDay + '일 ~ ' + (d.settings.startDay - 1) + '일로 바꿨어요');
+    })
+    ['catch'](function (e) {
+      toast(e.message);
+      renderStartDay();   // 원래 값으로 되돌린다
+    });
 }
 
 function renderMembers() {

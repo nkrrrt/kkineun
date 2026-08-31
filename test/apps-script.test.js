@@ -765,3 +765,50 @@ test('누가 넣었는지는 증명서의 주인으로 기록된다', () => {
   assert.equal(out.error, undefined, out.error);
   assert.equal(out.result.transactions[0].userEmail, 수호, '주인 이름으로 기록됐습니다');
 });
+
+/* ================================================================== */
+/* 한 달의 시작일과 종료일                                              */
+/* ================================================================== */
+
+test('시작일을 정하면 종료일이 따라온다', () => {
+  const gas = freshLedger();
+
+  const set = (payload) => gas.call('updateSettings', { month: '2026-08', ...payload }).settings;
+
+  assert.deepEqual(set({ startDay: 24 }), { startDay: 24, endDay: 23 });
+  assert.deepEqual(set({ startDay: 1 }), { startDay: 1, endDay: 0 });   // 0 = 말일
+  assert.deepEqual(set({ startDay: 31 }), { startDay: 31, endDay: 30 });
+});
+
+test('종료일을 정하면 시작일이 따라온다', () => {
+  const gas = freshLedger();
+  const set = (endDay) => gas.call('updateSettings', { endDay, month: '2026-08' }).settings;
+
+  assert.deepEqual(set(23), { startDay: 24, endDay: 23 });
+  assert.deepEqual(set(0), { startDay: 1, endDay: 0 });    // 말일로 끝내기
+  assert.deepEqual(set(31), { startDay: 1, endDay: 0 });   // 31일도 말일과 같은 뜻
+});
+
+test('시작일과 종료일 사이에 빈 날이 생기지 않는다', () => {
+  const gas = freshLedger();
+
+  // 어떤 값으로 정하든, 한 달의 끝 다음 날은 그 다음 달의 시작이라야 한다
+  for (const startDay of [1, 5, 24, 28, 31]) {
+    gas.call('updateSettings', { startDay, month: '2026-08' });
+    const 팔월 = gas.call('getMonthData', '2026-08').range;
+    const 구월 = gas.call('getMonthData', '2026-09').range;
+
+    const 다음날 = new Date(팔월.to + 'T00:00:00');
+    다음날.setDate(다음날.getDate() + 1);
+    const iso = 다음날.toISOString().slice(0, 10);
+    assert.equal(iso, 구월.from, `${startDay}일 시작에서 ${팔월.to} 다음 날이 비었습니다`);
+  }
+});
+
+test('말이 안 되는 종료일은 막는다', () => {
+  const gas = freshLedger();
+  for (const bad of [-1, 32, 1.5, 'abc']) {
+    assert.throws(() => gas.call('updateSettings', { endDay: bad, month: '2026-08' }),
+      /종료일/, `${bad} 이(가) 통과했습니다`);
+  }
+});

@@ -310,3 +310,32 @@ test('로그아웃하면 남겨둔 내역을 지운다', { skip }, async () => {
   assert.equal(win.localStorage.getItem('ledger'), null, '로그아웃했는데 내역이 남아 있습니다');
   assert.equal(st(doc, 'signin'), '보임');
 });
+
+test('설정에서 시작일과 종료일이 짝으로 움직인다', { skip }, async () => {
+  const { doc } = openApp();
+  await wait();
+
+  // 설정 탭 열기
+  [...doc.querySelectorAll('.tabbar button')].forEach((b) => {
+    if (b.getAttribute('data-tab') === 'settings') b.click();
+  });
+  await wait(150);
+
+  const start = doc.getElementById('set-start-day');
+  const end = doc.getElementById('set-end-day');
+  assert.ok(start && end, '시작일·종료일 칸이 없습니다');
+  assert.ok([...end.options].some((o) => o.textContent === '말일'), '종료일에 말일이 없습니다');
+
+  // 시작일을 24일로 → 종료일이 23일로 따라와야 한다
+  start.value = '24';
+  start.dispatchEvent(new doc.defaultView.Event('change'));
+  await wait(200);
+  assert.equal(start.value, '24');
+  assert.equal(end.value, '23', '종료일이 안 따라왔습니다');
+
+  // 종료일을 말일로 → 시작일이 1일로 따라와야 한다
+  end.value = '0';
+  end.dispatchEvent(new doc.defaultView.Event('change'));
+  await wait(200);
+  assert.equal(start.value, '1', '시작일이 안 따라왔습니다');
+});

@@ -264,6 +264,11 @@ button { cursor: pointer; }
 .sheet-link { display: block; text-align: center; padding: 10px; border-radius: 14px;
   background: var(--sky); color: var(--ink); text-decoration: none; font-weight: 700;
   border: 2px solid var(--edge); box-shadow: 2px 2px 0 var(--drop); }
+/* 한 달의 시작일 ~ 종료일 */
+.cycle { display: flex; align-items: flex-end; gap: 9px; margin: 12px 0 8px; }
+.cycle .field { flex: 1; min-width: 0; margin: 0; }
+.cycle-tie { flex: 0 0 auto; padding-bottom: 11px; font-weight: 700; color: var(--muted); }
+
 .help-box { background: var(--surface-2); border: 2px solid var(--line); border-radius: 14px;
   padding: 10px 12px; font-size: 12.5px; line-height: 1.7; margin: 10px 0; }
 .help-box ol { margin: 5px 0 0; padding-left: 17px; }

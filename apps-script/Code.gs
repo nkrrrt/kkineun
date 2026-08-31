@@ -497,7 +497,27 @@ function readSettings_() {
     var n = Number(r[1]);
     if (isFinite(n) && Math.floor(n) === n && n >= 1 && n <= 31) startDay = n;
   });
-  return { startDay: startDay };
+  return { startDay: startDay, endDay: endDayOf_(startDay) };
+}
+
+/**
+ * 시작일에서 종료일을 구한다. 0 은 '말일'이라는 뜻이다.
+ *
+ * 한 달은 시작일 바로 앞날에 끝난다. 24일에 시작하면 23일에 끝나는 식이다.
+ * 둘을 따로 정하게 두면 사이에 빈 날이 생기고, 그 날 쓴 돈은 어느 달에도
+ * 안 잡혀 사라진 것처럼 보인다. 그래서 하나를 정하면 나머지가 따라온다.
+ */
+function endDayOf_(startDay) {
+  return startDay <= 1 ? 0 : startDay - 1;
+}
+
+/** 종료일에서 시작일을 구한다. endDayOf_ 의 반대. */
+function startDayOf_(endDay) {
+  var n = Number(endDay);
+  if (!isFinite(n) || Math.floor(n) !== n || n < 0 || n > 31) {
+    fail_('종료일은 말일이거나 1에서 30 사이의 날짜여야 합니다.');
+  }
+  return (n === 0 || n >= 31) ? 1 : n + 1;
 }
 
 /** 설정 시트에서 한 항목을 고치거나, 없으면 새로 만든다. */
@@ -516,9 +536,16 @@ function putSetting_(key, value, note) {
 /** 월 시작일 바꾸기. 급여일이 바뀌면 여기만 고치면 된다. */
 function updateSettings(payload) {
   payload = payload || {};
-  var startDay = Number(payload.startDay);
-  if (!isFinite(startDay) || Math.floor(startDay) !== startDay || startDay < 1 || startDay > 31) {
-    fail_('월 시작일은 1에서 31 사이의 숫자여야 합니다.');
+
+  // 시작일과 종료일 중 무엇을 보내든 받는다. 둘은 붙어 있는 값이다.
+  var startDay;
+  if (payload.endDay !== undefined && payload.startDay === undefined) {
+    startDay = startDayOf_(payload.endDay);
+  } else {
+    startDay = Number(payload.startDay);
+    if (!isFinite(startDay) || Math.floor(startDay) !== startDay || startDay < 1 || startDay > 31) {
+      fail_('월 시작일은 1에서 31 사이의 숫자여야 합니다.');
+    }
   }
 
   var lock = LockService.getScriptLock();

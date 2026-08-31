@@ -12,3 +12,6 @@ var CONFIG = {
   //    ...apps.googleusercontent.com 으로 끝납니다.
   clientId: '1068313664202-3dhaov21ksrq2vaalvi32itidpkks58f.apps.googleusercontent.com'
 };
+
+/** 지금 돌고 있는 판. 설정 화면 맨 아래에 보인다. 고칠 때마다 올린다. */
+var APP_VERSION = '20260831a';

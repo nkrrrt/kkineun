@@ -32,18 +32,20 @@ const CLIENT_ID = 'test.apps.googleusercontent.com';
  * $ 로 바꿔버려서, app.js 의 두 도우미($ 와 $$)가 서로 덮어쓴다. 그러면 앱은
  * 멀쩡한데 테스트만 깨져서, 없는 버그를 쫓게 된다.
  */
-function inline(html, tag, body) {
-  if (!html.includes(tag)) throw new Error(`${tag} 를 찾지 못했습니다`);
-  return html.replace(tag, () => body);
+function inline(html, pattern, body) {
+  if (!pattern.test(html)) throw new Error(`${pattern} 를 찾지 못했습니다`);
+  return html.replace(pattern, () => body);
 }
 
 function testPage() {
   let h = read('index.html');
-  h = inline(h, '<link rel="stylesheet" href="styles.css" />', `<style>${read('styles.css')}</style>`);
+  // 파일 주소에는 판 번호(?v=...)가 붙어 있을 수 있다
+  h = inline(h, /<link rel="stylesheet" href="styles\.css[^"]*" \/>/, `<style>${read('styles.css')}</style>`);
   // 배포되는 config.js 는 비어 있으므로, 채워진 것으로 갈아 끼운다
-  h = inline(h, '<script src="config.js"></script>',
-    `<script>var CONFIG = { apiUrl: ${JSON.stringify(API_URL)}, clientId: ${JSON.stringify(CLIENT_ID)} };</script>`);
-  h = inline(h, '<script src="app.js"></script>', `<script>${read('app.js')}</script>`);
+  h = inline(h, /<script src="config\.js[^"]*"><\/script>/,
+    `<script>var CONFIG = { apiUrl: ${JSON.stringify(API_URL)}, clientId: ${JSON.stringify(CLIENT_ID)} };` +
+    `var APP_VERSION = 'test';</script>`);
+  h = inline(h, /<script src="app\.js[^"]*"><\/script>/, `<script>${read('app.js')}</script>`);
   return h
     .replace(/<script src="https:\/\/accounts\.google\.com[^>]*><\/script>/, '')
     .replace(/<link rel="stylesheet"[^>]*fonts\.googleapis[^>]*\/>/g, '');
@@ -193,4 +195,16 @@ test('탭을 모두 열어봐도 죽지 않는다', { skip }, async () => {
   dark.click();
   assert.equal(doc.documentElement.getAttribute('data-theme'), 'dark', '어둡게가 안 먹습니다');
   assert.equal(win.localStorage.getItem('theme'), 'dark');
+});
+
+test('파일 주소에 판 번호가 붙어 있다', { skip }, async () => {
+  const ver = read('config.js').match(/APP_VERSION = '([^']+)'/)[1];
+  const h = read('index.html');
+
+  // 판 번호가 없으면 폰이 옛 파일을 계속 붙들어서, 고쳐도 안 바뀐 것처럼 보인다
+  for (const f of ['styles.css', 'app.js', 'config.js']) {
+    assert.ok(h.includes(`${f}?v=${ver}`), `${f} 에 판 번호(${ver})가 없습니다`);
+  }
+  // 일꾼도 같은 판이라야 옛 것을 비운다
+  assert.ok(read('sw.js').includes(`kkineun-${ver}`), '일꾼의 판 번호가 다릅니다');
 });

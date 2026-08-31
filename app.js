@@ -718,6 +718,8 @@ $$('[data-theme-choice]').forEach(function (b) {
 
 function renderSettings() {
   renderTheme();
+  // 지금 무슨 판이 돌고 있는지 눈으로 확인할 수 있게. 고쳤는데 그대로면 옛 파일이다.
+  $('#app-version').textContent = '판 ' + (typeof APP_VERSION === 'undefined' ? '?' : APP_VERSION);
   renderStartDay();
   if (state.me) {
     $('#set-my-name').textContent = state.me.name;

@@ -424,7 +424,31 @@ function apply(data) {
   if (state.tab === 'settings') renderSettings();
 }
 
-function loadMonth(month) { return withBusy(call('getMonthData', month)).then(apply); }
+/**
+ * 다른 달로 넘어간다.
+ *
+ * 한 번 본 달은 곧바로 그려주고 새 자료는 뒤에서 받아 바꿔 끼운다. 달을 넘길
+ * 때마다 시트를 기다리면, 몇 달치를 훑어보는 동안 계속 멈춰 있게 된다.
+ */
+var monthSeen = {};
+
+function loadMonth(month) {
+  var seen = monthSeen[month];
+  if (seen) {
+    apply(seen);
+    busy(true);
+    return call('getMonthData', month)
+      .then(function (d) { busy(false); monthSeen[month] = d; if (state.month === month) apply(d); })
+      ['catch'](function (e) { busy(false); toast(e.message); });
+  }
+  return withBusy(call('getMonthData', month)).then(function (d) {
+    monthSeen[month] = d;
+    apply(d);
+  });
+}
+
+/** 내역이 바뀌면 기억해 둔 달들은 더 이상 믿을 수 없다. */
+function forgetMonths() { monthSeen = {}; }
 
 /* ------------------------------------------------------------------ */
 /* 상단                                                                */
@@ -1307,22 +1331,90 @@ $('#form-tx').addEventListener('submit', function (e) {
   var editing = state.editingTx;
   if (editing) payload.id = editing.id;
 
+  // 새 기록이고 지금 보는 기간 안이면, 서버를 기다리지 않고 먼저 목록에 올린다.
+  // 다른 달로 가는 기록은 화면이 통째로 바뀌어야 하므로 그냥 기다린다.
+  var guess = (!editing && inRange(payload.date)) ? showPending(payload) : null;
+  if (guess) {
+    dlgTx.close();
+    saveBtn.disabled = false;
+    saveBtn.textContent = '저장';
+  }
+
   withBusy(call(editing ? 'updateTransaction' : 'addTransaction', payload))
     .then(function (data) {
+      forgetMonths();
       state.selectedDate = payload.date;
       apply(data);
-      dlgTx.close();
+      monthSeen[state.month] = data;
+      if (!guess) dlgTx.close();
       toast(editing ? '고쳤어요' : '기록했어요');
     })
-    ['catch'](function (err) { showError($('#tx-error'), err.message); })
+    ['catch'](function (err) {
+      if (guess) {
+        removePending(guess);
+        toast(err.message);
+        openTxModal(null);   // 적은 내용을 잃지 않게 다시 열어준다
+      } else {
+        showError($('#tx-error'), err.message);
+      }
+    })
     .then(function () { saveBtn.disabled = false; saveBtn.textContent = '저장'; });
 });
+
+/**
+ * 저장을 기다리는 동안 목록에 미리 올려둔다.
+ *
+ * 시트에 다녀오는 데 몇 초가 걸린다. 그 사이 화면이 그대로면 '눌렸나?' 싶어
+ * 또 누르게 된다. 먼저 보여주고, 잘못되면 조용히 걷어낸다.
+ */
+function showPending(payload) {
+  var cat = null;
+  state.categories.forEach(function (c) { if (c.id === payload.categoryId) cat = c; });
+
+  var row = {
+    id: 'pending-' + Date.now(),
+    date: payload.date,
+    kind: payload.kind,
+    amount: Number(String(payload.amount).replace(/[^0-9]/g, '')) || 0,
+    categoryName: cat ? cat.name : '미분류',
+    categoryColor: cat ? cat.color : '#94a3b8',
+    categoryIcon: cat ? cat.icon : 'dots',
+    categoryGroup: cat ? cat.group : '그 밖에',
+    memo: payload.memo || '',
+    userEmail: payload.userEmail || (state.me ? state.me.email : ''),
+    userName: memberName(payload.userEmail || (state.me ? state.me.email : '')),
+    pending: true
+  };
+
+  state.transactions.unshift(row);
+  state.selectedDate = payload.date;
+  redraw();
+  return row;
+}
+
+function removePending(row) {
+  state.transactions = state.transactions.filter(function (t) { return t.id !== row.id; });
+  redraw();
+}
+
+/**
+ * 미리 올린 줄이 보이도록 화면만 다시 그린다.
+ *
+ * 합계는 손대지 않는다. 수입·지출·차액은 서버가 대분류·소분류·사람별로 묶어서
+ * 계산하는데, 그걸 화면에서 흉내 내면 언젠가 서버와 숫자가 어긋난다. 가계부에서
+ * 숫자가 어긋나는 것보다는 1~2초 늦게 맞는 편이 낫다. 그동안은 진행 표시가 돈다.
+ */
+function redraw() {
+  renderCalendar();
+  renderDayPanel();
+  renderTransactions();
+}
 
 $('#btn-tx-delete').addEventListener('click', function () {
   if (!state.editingTx || !confirm('이 기록을 지울까요?')) return;
   showError($('#tx-error'), '');
   withBusy(call('deleteTransaction', state.editingTx.id, state.month))
-    .then(function (d) { apply(d); dlgTx.close(); toast('지웠어요'); })
+    .then(function (d) { forgetMonths(); apply(d); monthSeen[state.month] = d; dlgTx.close(); toast('지웠어요'); })
     ['catch'](function (err) { showError($('#tx-error'), err.message); });
 });
 

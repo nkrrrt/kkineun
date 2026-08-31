@@ -64,7 +64,7 @@ function testPage() {
  * signedIn 이면 이미 로그인된 상태로 시작한다.
  */
 function openApp({ signedIn = true, who = 지민, silent = null, secondsLeft = 3600,
-  slowServer = false, deadServer = false, ledger = null } = {}) {
+  slowServer = false, deadServer = false, deadFromStart = false, ledger = null } = {}) {
   const gas = loadGas({ owner: 지민, editors: [수호] });
   gas.context.CLIENT_ID = CLIENT_ID;
   gas.call('ensureSheets_');
@@ -86,9 +86,11 @@ function openApp({ signedIn = true, who = 지민, silent = null, secondsLeft = 3
       w.fetch = (url, opts) => {
         const body = JSON.parse(opts.body);
         calls.push(body.fn);
-        if (deadServer) return Promise.reject(new TypeError('네트워크 없음'));
+        // 첫 자료는 늘 제대로 준다. 느리거나 끊긴 상황은 그 다음 요청부터 흉내 낸다.
+        const first = body.fn === 'getBootstrap' && !deadFromStart;
+        if (deadServer && !first) return Promise.reject(new TypeError('네트워크 없음'));
         const answer = Promise.resolve({ ok: true, json: () => Promise.resolve(gas.post(body)) });
-        return slowServer ? new Promise((r) => setTimeout(() => r(answer), 5000)) : answer;
+        return (slowServer && !first) ? new Promise((r) => setTimeout(() => r(answer), 5000)) : answer;
       };
       // 구글 로그인 코드 대신, 단추를 그리고 조용한 로그인을 흉내 낸다
       w.google = {
@@ -294,8 +296,8 @@ test('새 자료를 못 받아와도 보던 화면을 뺏지 않는다', { skip 
   await wait();
   const saved = first.win.localStorage.getItem('ledger');
 
-  // 인터넷이 끊긴 상황
-  const next = openApp({ signedIn: true, deadServer: true, ledger: saved });
+  // 인터넷이 끊긴 상황 (첫 요청부터 실패해야 하므로 따로 표시)
+  const next = openApp({ signedIn: true, deadServer: true, deadFromStart: true, ledger: saved });
   await wait();
   assert.equal(st(next.doc, 'screens'), '보임', '보던 내역이 사라졌습니다');
   assert.equal(st(next.doc, 'fatal'), '숨김', '오류 화면으로 덮었습니다');
@@ -340,4 +342,91 @@ test('시작일·종료일을 따로 정할 수 있고, 겹치면 알려준다',
   assert.equal(end.value, '25');
   assert.match(note.textContent, /모두/, '겹친다고 안 알려줍니다');
   assert.match(note.textContent, /7\.24 ~ 8\.25/, '기간이 틀립니다: ' + note.textContent);
+});
+
+/* ------------------------------------------------------------------ */
+/* 기다리지 않게 하기                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * jsdom 이 브라우저만큼 갖추지 못한 두 가지를 채운다. 앱 문제가 아니라 시험 환경 문제다.
+ *  - form.amount 처럼 칸 이름으로 바로 접근하기
+ *  - <dialog> 의 showModal / close
+ */
+function patchDom(doc) {
+  doc.querySelectorAll('form').forEach((form) => {
+    form.querySelectorAll('[name]').forEach((el) => {
+      if (form[el.name] === undefined) {
+        Object.defineProperty(form, el.name, { get: () => el, configurable: true });
+      }
+    });
+  });
+  doc.querySelectorAll('dialog').forEach((dlg) => {
+    if (typeof dlg.showModal !== 'function') {
+      dlg.showModal = function () { this.setAttribute('open', ''); };
+      dlg.close = function () { this.removeAttribute('open'); };
+    }
+  });
+}
+
+/** 기록 창을 열어 한 건 적고 저장을 누른다 */
+function addOne(doc, { amount = '7000', date = '2026-08-12', memo = '점심' } = {}) {
+  patchDom(doc);
+  doc.getElementById('btn-add').click();
+  const form = doc.getElementById('form-tx');
+  const put = (name, v) => { form.querySelector(`[name="${name}"]`).value = v; };
+  put('amount', amount);
+  put('date', date);
+  put('memo', memo);
+  form.dispatchEvent(new doc.defaultView.Event('submit', { cancelable: true }));
+}
+
+/** 화면에 그려진 기록 수. 같은 건이 날짜 칸과 목록 양쪽에 그려지므로 상태를 본다. */
+const kept = (win) => win.state.transactions.length;
+
+test('저장을 누르면 서버를 기다리지 않고 목록에 바로 뜬다', { skip }, async () => {
+  const extra = openApp({ slowServer: true });
+  const { doc } = extra;
+  await wait();
+
+  const win = doc.defaultView;
+  const before = kept(win);
+  addOne(doc, { memo: '즉시확인' });
+  await wait(80);   // 서버는 아직 한참 남았다
+
+  assert.deepEqual(extra.errors, [], '페이지 오류: ' + extra.errors.join(' / '));
+  assert.equal(kept(win), before + 1, '적은 내역이 바로 안 올라갔습니다');
+  assert.match(doc.body.textContent, /즉시확인/, '적은 내용이 화면에 안 보입니다');
+  assert.equal(doc.getElementById('dlg-tx').hasAttribute('open'), false, '기록 창이 안 닫혔습니다');
+  assert.equal(doc.getElementById('busy').hidden, false, '저장 중 표시가 없습니다');
+});
+
+test('저장이 실패하면 미리 올린 줄을 걷어낸다', { skip }, async () => {
+  const { doc } = openApp({ deadServer: true });
+  await wait();
+
+  const win = doc.defaultView;
+  const before = kept(win);
+  addOne(doc, { memo: '실패할것' });
+  await wait(300);
+
+  assert.equal(kept(win), before, '실패했는데 줄이 남아 있습니다');
+  assert.doesNotMatch(doc.body.textContent, /실패할것/, '실패한 내역이 화면에 남아 있습니다');
+});
+
+test('한 번 본 달로 돌아가면 기다리지 않는다', { skip }, async () => {
+  const { doc, calls } = openApp();
+  await wait();
+
+  doc.getElementById('btn-prev-month').click();   // 7월
+  await wait();
+  const label = doc.getElementById('month-label').textContent;
+
+  doc.getElementById('btn-next-month').click();   // 8월
+  await wait();
+  calls.length = 0;
+
+  doc.getElementById('btn-prev-month').click();   // 다시 7월
+  await wait(60);   // 서버 답이 오기 전
+  assert.equal(doc.getElementById('month-label').textContent, label, '본 적 있는 달인데 안 그려집니다');
 });

@@ -1,0 +1,16 @@
+{
+  "name": "함께 쓰는 가계부",
+  "short_name": "가계부",
+  "description": "둘이서 함께 쓰는 수입·지출 기록장",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f2ecff",
+  "theme_color": "#f2ecff",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

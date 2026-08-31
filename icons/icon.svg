@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- 함께 쓰는 가계부 앱 아이콘 · 말랑 뉴트로 -->
+  <rect x="8" y="8" width="496" height="496" rx="112" fill="#c9b6ff" stroke="#34304a" stroke-width="16"/>
+
+  <!-- 뒤쪽 동전 (민트) — 한 사람 -->
+  <circle cx="196" cy="212" r="96" fill="#a8ecd0" stroke="#34304a" stroke-width="16"/>
+  <!-- 앞쪽 동전 (버터) — 다른 한 사람 -->
+  <circle cx="316" cy="212" r="96" fill="#ffe07a" stroke="#34304a" stroke-width="16"/>
+  <!-- 겹치는 부분을 다시 그려 앞뒤를 분명하게 -->
+  <path d="M256 128.5a96 96 0 0 1 0 167A96 96 0 0 1 256 128.5z" fill="#ffe07a" stroke="#34304a" stroke-width="16" stroke-linejoin="round"/>
+
+  <!-- 아래 장부 줄 -->
+  <rect x="120" y="342" width="272" height="30" rx="15" fill="#ffffff" stroke="#34304a" stroke-width="16"/>
+  <rect x="120" y="406" width="176" height="30" rx="15" fill="#ffffff" stroke="#34304a" stroke-width="16"/>
+</svg>

@@ -1,0 +1,16 @@
+{
+  "name": "kkineun",
+  "version": "1.0.0",
+  "description": "함께 쓰는 가계부 — 둘이서 공유하는 수입/지출 기록장",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "jsdom": "^27.0.0"
+  }
+}

@@ -10,5 +10,5 @@ var CONFIG = {
 
   // 2) 구글 클라우드 콘솔에서 만든 웹 클라이언트 ID.
   //    ...apps.googleusercontent.com 으로 끝납니다.
-  clientId: ''
+  clientId: '1068313664202-3dhaov21ksrq2vaalvi32itidpkks58f.apps.googleusercontent.com'
 };

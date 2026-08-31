@@ -37,7 +37,7 @@ var CACHE_EDITORS = 'editors';
  * 화면(config.js)에 적은 것과 똑같아야 한다. 이걸 확인해야, 남이 우리 화면을
  * 통째로 베껴 다른 주소에 올려도 그 증명서로는 우리 시트를 못 건드린다.
  */
-var CLIENT_ID = '';
+var CLIENT_ID = '1068313664202-3dhaov21ksrq2vaalvi32itidpkks58f.apps.googleusercontent.com';
 
 /** 화면이 올라가 있는 주소. 옛 주소로 들어온 사람을 여기로 안내한다. */
 var APP_URL = 'https://nkrrrt.github.io/kkineun/';

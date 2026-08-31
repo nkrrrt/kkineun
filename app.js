@@ -122,8 +122,15 @@ function call(fn) {
     })
     .then(function (out) {
       if (out && out.error) {
-        // 증명서가 만료됐으면 조용히 다시 로그인시킨다
-        if (out.needSignIn) { signOut(out.error); throw new Error(out.error); }
+        if (out.needSignIn) {
+          keepToken('');
+          // 초대 명단 문제면 다시 받아봐야 소용없다
+          if (!/초대되지/.test(out.error)) {
+            silentSignIn(function () { signOut(out.error); });
+          } else {
+            signOut(out.error);
+          }
+        }
         throw new Error(out.error);
       }
       return out ? out.result : null;
@@ -141,16 +148,16 @@ function call(fn) {
 var auth = { token: '', ready: false };
 
 /**
- * 구글이 준 증명서를 이 기기에 잠깐 보관한다.
+ * 구글이 준 증명서를 이 기기에 보관한다.
  *
- * 한 시간쯤 지나면 만료된다. 그때는 서버가 '다시 로그인'이라고 알려주고,
- * 화면이 로그인 화면으로 돌아간다.
+ * 앱을 껐다 켜도 남아 있어야 매번 로그인하지 않는다. 증명서는 한 시간쯤 지나면
+ * 만료되는데, 그때는 구글에게 조용히 새로 받아온다(아래 silentSignIn).
  */
 function keepToken(token) {
   auth.token = token || '';
   try {
-    if (token) sessionStorage.setItem('idt', token);
-    else sessionStorage.removeItem('idt');
+    if (token) localStorage.setItem('idt', token);
+    else localStorage.removeItem('idt');
   } catch (e) {
     // 저장을 못 해도 이번 방문에는 쓸 수 있다
   }
@@ -158,13 +165,31 @@ function keepToken(token) {
 
 function loadToken() {
   try {
-    auth.token = sessionStorage.getItem('idt') || '';
+    auth.token = localStorage.getItem('idt') || '';
   } catch (e) {
     auth.token = '';
   }
+  if (auth.token && expired(auth.token)) keepToken('');
   return auth.token;
 }
 
+/**
+ * 증명서에 적힌 만료 시각이 지났는지 본다.
+ *
+ * 서명을 확인하는 게 아니라 언제까지 쓸 수 있는지만 읽는 것이다. 진짜 검사는
+ * 서버가 구글에 물어서 한다. 여기서는 '이미 지난 걸 굳이 보내지 말자'는 정도다.
+ */
+function expired(token) {
+  try {
+    var body = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    var exp = Number(JSON.parse(atob(body)).exp) || 0;
+    return exp * 1000 < Date.now() + 60000;   // 1분 남았으면 만료로 친다
+  } catch (e) {
+    return true;
+  }
+}
+
+/** 로그인 화면으로 돌아간다. */
 function signOut(why) {
   keepToken('');
   $('#loading').hidden = true;
@@ -175,6 +200,53 @@ function signOut(why) {
   $('#signin-note').textContent = why || '';
   $('#signin').hidden = false;
   showGoogleButton();
+}
+
+/**
+ * 구글에게 조용히 증명서를 다시 받아본다.
+ *
+ * 이미 이 기기에서 로그인한 적이 있으면 구글이 묻지 않고 바로 내준다. 그래서
+ * 대개는 로그인 화면을 볼 일이 없다. 안 되면 시간 안에 답이 없으니, 그때만
+ * 로그인 화면을 보여준다.
+ */
+function silentSignIn(onFail) {
+  if (!CONFIG.clientId || !window.google || !google.accounts || !google.accounts.id) {
+    onFail();
+    return;
+  }
+  initGoogle();
+
+  var settled = false;
+  auth.silent = function (token) {
+    if (settled) return;
+    settled = true;
+    auth.silent = null;
+    onSignedIn(token);
+  };
+  setTimeout(function () {
+    if (settled) return;
+    settled = true;
+    auth.silent = null;
+    onFail();
+  }, 3000);
+
+  function giveUp() {
+    if (settled) return;
+    settled = true;
+    auth.silent = null;
+    onFail();
+  }
+
+  try {
+    // 구글이 '못 내주겠다'고 알려주면 3초를 기다리지 않고 바로 로그인 화면으로
+    google.accounts.id.prompt(function (n) {
+      if (!n) return;
+      var no = (n.isNotDisplayed && n.isNotDisplayed()) || (n.isSkippedMoment && n.isSkippedMoment());
+      if (no) giveUp();
+    });
+  } catch (e) {
+    giveUp();
+  }
 }
 
 function busy(on) {
@@ -1254,19 +1326,29 @@ function showGoogleButton() {
     return;
   }
 
-  if (!auth.ready) {
-    google.accounts.id.initialize({
-      client_id: CONFIG.clientId,
-      callback: function (res) { onSignedIn(res && res.credential); },
-      auto_select: true
-    });
-    auth.ready = true;
-  }
+  initGoogle();
   box.innerHTML = '';
   google.accounts.id.renderButton(box, {
     theme: 'outline', size: 'large', shape: 'pill', text: 'signin_with', locale: 'ko'
   });
   google.accounts.id.prompt();
+}
+
+/** 구글 로그인 코드를 한 번만 준비시킨다. */
+function initGoogle() {
+  if (auth.ready) return;
+  google.accounts.id.initialize({
+    client_id: CONFIG.clientId,
+    callback: function (res) {
+      var token = res && res.credential;
+      // 조용히 받아오는 중이었으면 그쪽이 받는다
+      if (auth.silent) auth.silent(token);
+      else onSignedIn(token);
+    },
+    auto_select: true,
+    cancel_on_tap_outside: false
+  });
+  auth.ready = true;
 }
 
 function onSignedIn(token) {
@@ -1314,6 +1396,11 @@ function openLedger() {
     });
   }
 
-  if (loadToken()) openLedger();
-  else signOut('');
+  if (loadToken()) {
+    openLedger();
+    return;
+  }
+  // 저장된 증명서가 없거나 만료됐으면, 먼저 조용히 받아본다
+  $('#loading').hidden = false;
+  silentSignIn(function () { signOut(''); });
 })();

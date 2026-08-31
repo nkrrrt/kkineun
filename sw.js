@@ -8,7 +8,7 @@
  * 왜 안 바뀌냐고 한참 헤매게 된다. 늘 새 것을 먼저 받아보고, 인터넷이 안 될
  * 때만 담아둔 것을 꺼낸다.
  */
-var CACHE = 'kkineun-20260831b';
+var CACHE = 'kkineun-20260831c';
 
 self.addEventListener('install', function () { self.skipWaiting(); });
 

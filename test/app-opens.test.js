@@ -25,6 +25,14 @@ const skip = JSDOM ? false : 'jsdom 없음';
 const API_URL = 'https://script.google.com/macros/s/TEST/exec';
 const CLIENT_ID = 'test.apps.googleusercontent.com';
 
+/** 구글이 주는 증명서와 같은 모양(머리.내용.서명)으로 만든다. 화면이 만료 시각을 읽는다. */
+function makeToken(email, secondsLeft = 3600) {
+  const body = Buffer.from(JSON.stringify({
+    email, aud: CLIENT_ID, exp: Math.floor(Date.now() / 1000) + secondsLeft,
+  })).toString('base64url');
+  return `head.${body}.sign`;
+}
+
 /**
  * 바깥에서 받아오는 것(글꼴·구글 로그인 코드)을 걷어내고 우리 파일을 끼워 넣는다.
  *
@@ -55,11 +63,13 @@ function testPage() {
  * 앱을 연다. 서버 응답은 진짜 Code.gs 가 만든다 — 화면과 서버를 한 번에 확인한다.
  * signedIn 이면 이미 로그인된 상태로 시작한다.
  */
-function openApp({ signedIn = true, who = 지민 } = {}) {
+function openApp({ signedIn = true, who = 지민, silent = null, secondsLeft = 3600 } = {}) {
   const gas = loadGas({ owner: 지민, editors: [수호] });
   gas.context.CLIENT_ID = CLIENT_ID;
   gas.call('ensureSheets_');
-  gas.issueToken('TOKEN', { email: who });
+
+  const token = makeToken(who, secondsLeft);
+  gas.issueToken(token, { email: who });
 
   const calls = [];
   const errors = [];
@@ -77,22 +87,25 @@ function openApp({ signedIn = true, who = 지민 } = {}) {
         calls.push(body.fn);
         return Promise.resolve({ ok: true, json: () => Promise.resolve(gas.post(body)) });
       };
-      // 구글 로그인 코드 대신, 단추를 그리는 흉내만 낸다
+      // 구글 로그인 코드 대신, 단추를 그리고 조용한 로그인을 흉내 낸다
       w.google = {
         accounts: {
           id: {
             initialize(o) { w.__cb = o.callback; },
             renderButton(box) { box.innerHTML = '<button id="fake-google">구글로 로그인</button>'; },
-            prompt() {},
+            prompt(cb) {
+              if (silent) setTimeout(function () { w.__cb({ credential: token }); }, 0);
+              else if (cb) cb({ isNotDisplayed: () => true, isSkippedMoment: () => false });
+            },
           },
         },
       };
-      if (signedIn) w.sessionStorage.setItem('idt', 'TOKEN');
+      if (signedIn) w.localStorage.setItem('idt', token);
     },
   });
 
   const w = dom.window;
-  return { win: w, doc: w.document, gas, calls, errors };
+  return { win: w, doc: w.document, gas, calls, errors, token };
 }
 
 const wait = (ms = 400) => new Promise((r) => setTimeout(r, ms));
@@ -132,15 +145,17 @@ test('로그인 전에는 로그인 화면만 보인다', { skip }, async () => 
 });
 
 test('로그인하면 가계부로 넘어간다', { skip }, async () => {
-  const { win, doc } = openApp({ signedIn: false });
+  const extra = openApp({ signedIn: false });
+  const { win, doc } = extra;
   await wait(200);
 
-  win.__cb({ credential: 'TOKEN' });   // 구글이 증명서를 준 상황
+  const { token } = extra;
+  win.__cb({ credential: token });   // 구글이 증명서를 준 상황
   await wait();
 
   assert.equal(st(doc, 'signin'), '숨김', '로그인해도 로그인 화면이 남아 있습니다');
   assert.equal(st(doc, 'screens'), '보임', '가계부가 안 나옵니다');
-  assert.equal(win.sessionStorage.getItem('idt'), 'TOKEN');
+  assert.equal(win.localStorage.getItem('idt'), token, '다음에 열 때 쓸 증명서가 저장되지 않았습니다');
 });
 
 test('초대받지 않은 계정은 로그인 화면으로 되돌아간다', { skip }, async () => {
@@ -207,4 +222,43 @@ test('파일 주소에 판 번호가 붙어 있다', { skip }, async () => {
   }
   // 일꾼도 같은 판이라야 옛 것을 비운다
   assert.ok(read('sw.js').includes(`kkineun-${ver}`), '일꾼의 판 번호가 다릅니다');
+});
+
+/* ------------------------------------------------------------------ */
+/* 다시 열 때 로그인                                                    */
+/* ------------------------------------------------------------------ */
+
+test('앱을 껐다 켜도 다시 로그인하지 않는다', { skip }, async () => {
+  const { doc, calls } = openApp({ signedIn: true });
+  await wait();
+
+  // 저장해 둔 증명서로 바로 열려야 한다
+  assert.equal(st(doc, 'signin'), '숨김', '또 로그인하라고 합니다');
+  assert.equal(st(doc, 'screens'), '보임');
+  assert.ok(calls.includes('getBootstrap'), '자료를 안 불러왔습니다');
+});
+
+test('증명서가 만료됐으면 조용히 새로 받아 연다', { skip }, async () => {
+  // 저장된 것은 이미 만료, 대신 구글이 조용히 새 것을 내주는 상황
+  const { doc } = openApp({ signedIn: true, secondsLeft: -10, silent: true });
+  await wait();
+
+  assert.equal(st(doc, 'signin'), '숨김', '만료됐다고 로그인 화면을 띄웠습니다');
+  assert.equal(st(doc, 'screens'), '보임', '가계부가 안 열렸습니다');
+});
+
+test('구글이 조용히 못 내주면 그때만 로그인 화면', { skip }, async () => {
+  const { doc } = openApp({ signedIn: false, silent: false });
+  await wait();
+
+  assert.equal(st(doc, 'signin'), '보임', '로그인 화면이 안 나옵니다');
+  assert.ok(doc.getElementById('fake-google'), '로그인 단추가 없습니다');
+});
+
+test('만료된 증명서는 서버로 보내지 않는다', { skip }, async () => {
+  const { calls } = openApp({ signedIn: true, secondsLeft: -10, silent: false });
+  await wait();
+
+  // 어차피 거절당할 것을 보내면 왕복만 낭비된다
+  assert.deepEqual(calls, [], '만료된 증명서로 서버를 불렀습니다');
 });

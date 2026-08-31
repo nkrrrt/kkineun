@@ -776,7 +776,7 @@ test('시작일을 정하면 종료일이 따라온다', () => {
   const set = (payload) => gas.call('updateSettings', { month: '2026-08', ...payload }).settings;
 
   assert.deepEqual(set({ startDay: 24 }), { startDay: 24, endDay: 23 });
-  assert.deepEqual(set({ startDay: 1 }), { startDay: 1, endDay: 0 });   // 0 = 말일
+  assert.deepEqual(set({ startDay: 1 }), { startDay: 1, endDay: 31 });  // 31 = 말일
   assert.deepEqual(set({ startDay: 31 }), { startDay: 31, endDay: 30 });
 });
 
@@ -785,8 +785,8 @@ test('종료일을 정하면 시작일이 따라온다', () => {
   const set = (endDay) => gas.call('updateSettings', { endDay, month: '2026-08' }).settings;
 
   assert.deepEqual(set(23), { startDay: 24, endDay: 23 });
-  assert.deepEqual(set(0), { startDay: 1, endDay: 0 });    // 말일로 끝내기
-  assert.deepEqual(set(31), { startDay: 1, endDay: 0 });   // 31일도 말일과 같은 뜻
+  assert.deepEqual(set(31), { startDay: 1, endDay: 31 });  // 31일 = 말일
+  assert.deepEqual(set(0), { startDay: 1, endDay: 31 });   // 0 도 같은 뜻으로 받아준다
 });
 
 test('시작일과 종료일 사이에 빈 날이 생기지 않는다', () => {

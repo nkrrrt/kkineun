@@ -324,7 +324,8 @@ test('설정에서 시작일과 종료일이 짝으로 움직인다', { skip }, 
   const start = doc.getElementById('set-start-day');
   const end = doc.getElementById('set-end-day');
   assert.ok(start && end, '시작일·종료일 칸이 없습니다');
-  assert.ok([...end.options].some((o) => o.textContent === '말일'), '종료일에 말일이 없습니다');
+  assert.equal(end.options.length, 31, '종료일이 31일까지 안 나옵니다');
+  assert.match(end.options[30].textContent, /말일/, '31일이 말일이라고 안 적혀 있습니다');
 
   // 시작일을 24일로 → 종료일이 23일로 따라와야 한다
   start.value = '24';
@@ -334,7 +335,7 @@ test('설정에서 시작일과 종료일이 짝으로 움직인다', { skip }, 
   assert.equal(end.value, '23', '종료일이 안 따라왔습니다');
 
   // 종료일을 말일로 → 시작일이 1일로 따라와야 한다
-  end.value = '0';
+  end.value = '31';
   end.dispatchEvent(new doc.defaultView.Event('change'));
   await wait(200);
   assert.equal(start.value, '1', '시작일이 안 따라왔습니다');

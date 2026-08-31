@@ -813,19 +813,19 @@ function renderSettings() {
  * 보인다. 그래서 한쪽을 고치면 다른 쪽이 따라온다.
  */
 function endDayOf(startDay) {
-  return startDay <= 1 ? 0 : startDay - 1;
+  return startDay <= 1 ? 31 : startDay - 1;
 }
 
 function fillDays(sel, kind) {
   if (sel.options.length) return;
   var html = '';
   if (kind === 'end') {
-    html += '<option value="0">말일</option>';
-    for (var e = 1; e <= 30; e++) html += '<option value="' + e + '">' + e + '일</option>';
-  } else {
-    for (var d = 1; d <= 31; d++) {
-      html += '<option value="' + d + '">' + d + '일' + (d === 1 ? ' (1일)' : '') + '</option>';
+    // 31일은 곧 '그 달의 마지막 날'이다. 2월처럼 짧은 달은 28·29일에 끝난다.
+    for (var e = 1; e <= 31; e++) {
+      html += '<option value="' + e + '">' + e + '일' + (e === 31 ? ' (말일)' : '') + '</option>';
     }
+  } else {
+    for (var d = 1; d <= 31; d++) html += '<option value="' + d + '">' + d + '일</option>';
   }
   sel.innerHTML = html;
 }
@@ -852,8 +852,8 @@ function renderStartDay() {
 
   var note = $('#start-day-note');
   if (day <= 1) {
-    note.innerHTML = '지금은 <b>달력 그대로</b>예요. 8월은 8월 1일 ~ 8월 31일.<br />' +
-      '월급날이 24일이면 시작일을 <b>24일</b>로 바꿔보세요.';
+    note.innerHTML = '지금은 <b>달력 그대로</b>예요. 1일 ~ 말일.<br />' +
+      '월급날이 25일이면 시작일을 <b>25일</b>로 바꿔보세요.';
   } else {
     note.innerHTML = '<b>' + day + '일</b>부터 <b>' + (day - 1) + '일</b>까지를 한 달로 세요.<br />' +
       '지금 보는 <b>' + monthLabel(state.month) + '</b>은 <b>' + rangeLabel() + '</b>.<br />' +

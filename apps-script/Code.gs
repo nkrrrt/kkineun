@@ -43,6 +43,12 @@ var CLIENT_ID = '1068313664202-3dhaov21ksrq2vaalvi32itidpkks58f.apps.googleuserc
 var APP_URL = 'https://nkrrrt.github.io/kkineun/';
 var CACHE_SECONDS = 21600;
 
+/** 증명서 확인 결과를 기억하는 시간. 증명서 자체가 한 시간짜리다. */
+var CACHE_TOKEN_SECONDS = 1800;
+
+/** 공유 목록을 기억하는 시간. 짧을수록 공유를 끊었을 때 빨리 막힌다. */
+var CACHE_EDITORS_SECONDS = 600;
+
 // 내역 시트 열 번호 (1부터)
 var TX_ID = 1, TX_DATE = 2, TX_KIND = 3, TX_AMOUNT = 4, TX_CAT = 5, TX_MEMO = 6, TX_USER = 7, TX_AT = 8;
 var GRP_ID = 1, GRP_KIND = 2, GRP_NAME = 3, GRP_COLOR = 4, GRP_ACTIVE = 5;
@@ -221,24 +227,40 @@ function verifyToken_(token) {
   var email = String(info.email || '').trim().toLowerCase();
   if (!email) fail_('증명서에 이메일이 없습니다.');
 
-  // 남은 유효 시간과 5분 중 짧은 쪽만 기억한다
+  // 이 확인 한 번마다 바깥 왕복이 한 번 붙는다. 증명서는 한 시간짜리이므로
+  // 남은 시간 안에서 넉넉히 기억해 두고, 그동안은 다시 묻지 않는다.
   if (cache) {
     var left = Math.floor(Number(info.exp) - Date.now() / 1000);
-    if (left > 30) cache.put(key, email, Math.min(left, 300));
+    if (left > 60) cache.put(key, email, Math.min(left - 60, CACHE_TOKEN_SECONDS));
   }
   return email;
 }
 
-/** 이 가계부를 공유받은 사람인가. 시트 공유 목록이 곧 초대 명단이다. */
-function isMember_(email) {
-  if (!email) return false;
-  if (editorEmails_().indexOf(email) >= 0) return true;
-  // 시트 공유 목록을 못 읽는 경우를 대비해 멤버 시트도 본다
-  var rows = rows_(SHEET_MEMBER, MEMBER_HEADERS.length);
-  for (var i = 0; i < rows.length; i++) {
-    if (String(rows[i][0] || '').trim().toLowerCase() === email) return true;
+/** 시트 주소. 바뀌지 않으니 한 번만 물어본다. */
+function sheetUrl_() {
+  var cache = docCache_();
+  if (cache) {
+    var hit = cache.get('sheet-url');
+    if (hit !== null && hit !== undefined) return hit;
   }
-  return false;
+  var url = '';
+  try {
+    url = ss_().getUrl() || '';
+  } catch (e) {
+    url = '';
+  }
+  if (cache) cache.put('sheet-url', url, CACHE_SECONDS);
+  return url;
+}
+
+/**
+ * 이 가계부를 공유받은 사람인가. 시트 공유 목록이 곧 초대 명단이다.
+ *
+ * 멤버 시트는 보지 않는다. 거기에는 '한 번이라도 열어본 사람'이 남아 있어서,
+ * 공유를 끊어도 이름이 그대로 남는다. 그걸 명단으로 쓰면 내보낼 방법이 없다.
+ */
+function isMember_(email) {
+  return !!email && editorEmails_().indexOf(email) >= 0;
 }
 
 function onOpen() {
@@ -662,8 +684,8 @@ function syncMembers_(email) {
  * 이 시트를 공유받은 사람들의 메일 주소.
  *
  * 공유 목록을 묻는 일은 시트를 읽는 것보다 한참 느리다(구글 드라이브 쪽에
- * 따로 물어봐야 한다). 공유 상대가 자주 바뀌지도 않으니 한 번 물어보면
- * 여섯 시간 동안 그 답을 재사용한다.
+ * 따로 물어봐야 한다). 그래서 답을 잠시 기억해 둔다. 다만 이 목록이 곧 초대
+ * 명단이므로, 공유를 끊었는데 한참 열려 있으면 곤란하다. 십 분만 기억한다.
  */
 function editorEmails_() {
   if (MEMO_.editors) return MEMO_.editors;
@@ -689,7 +711,7 @@ function editorEmails_() {
     // 권한이 없으면 멤버 시트 기준으로만 보여준다.
   }
 
-  if (cache) cache.put(CACHE_EDITORS, list.join(','), CACHE_SECONDS);
+  if (cache) cache.put(CACHE_EDITORS, list.join(','), CACHE_EDITORS_SECONDS);
   MEMO_.editors = list;
   return list;
 }
@@ -1137,11 +1159,7 @@ function getBootstrap(month) {
   data.members = members;
   data.groups = cat.groups;
   data.categories = cat.categories;
-  try {
-    data.sheetUrl = SpreadsheetApp.getActive().getUrl();
-  } catch (e) {
-    data.sheetUrl = '';
-  }
+  data.sheetUrl = sheetUrl_();
   return data;
 }
 

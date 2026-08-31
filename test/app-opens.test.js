@@ -63,7 +63,8 @@ function testPage() {
  * 앱을 연다. 서버 응답은 진짜 Code.gs 가 만든다 — 화면과 서버를 한 번에 확인한다.
  * signedIn 이면 이미 로그인된 상태로 시작한다.
  */
-function openApp({ signedIn = true, who = 지민, silent = null, secondsLeft = 3600 } = {}) {
+function openApp({ signedIn = true, who = 지민, silent = null, secondsLeft = 3600,
+  slowServer = false, deadServer = false, ledger = null } = {}) {
   const gas = loadGas({ owner: 지민, editors: [수호] });
   gas.context.CLIENT_ID = CLIENT_ID;
   gas.call('ensureSheets_');
@@ -85,7 +86,9 @@ function openApp({ signedIn = true, who = 지민, silent = null, secondsLeft = 3
       w.fetch = (url, opts) => {
         const body = JSON.parse(opts.body);
         calls.push(body.fn);
-        return Promise.resolve({ ok: true, json: () => Promise.resolve(gas.post(body)) });
+        if (deadServer) return Promise.reject(new TypeError('네트워크 없음'));
+        const answer = Promise.resolve({ ok: true, json: () => Promise.resolve(gas.post(body)) });
+        return slowServer ? new Promise((r) => setTimeout(() => r(answer), 5000)) : answer;
       };
       // 구글 로그인 코드 대신, 단추를 그리고 조용한 로그인을 흉내 낸다
       w.google = {
@@ -101,6 +104,7 @@ function openApp({ signedIn = true, who = 지민, silent = null, secondsLeft = 3
         },
       };
       if (signedIn) w.localStorage.setItem('idt', token);
+      if (ledger) w.localStorage.setItem('ledger', ledger);
     },
   });
 
@@ -261,4 +265,48 @@ test('만료된 증명서는 서버로 보내지 않는다', { skip }, async () 
 
   // 어차피 거절당할 것을 보내면 왕복만 낭비된다
   assert.deepEqual(calls, [], '만료된 증명서로 서버를 불렀습니다');
+});
+
+/* ------------------------------------------------------------------ */
+/* 빨리 열기                                                            */
+/* ------------------------------------------------------------------ */
+
+test('두 번째부터는 기다리지 않고 바로 보여준다', { skip }, async () => {
+  const first = openApp({ signedIn: true });
+  first.gas.call('addTransaction', {
+    date: '2026-08-11', kind: 'expense', amount: 4500, category: '식비', memo: '김밥', month: '',
+  });
+  await wait();
+  const saved = first.win.localStorage.getItem('ledger');
+  assert.ok(saved, '본 내역을 남겨두지 않았습니다');
+  assert.ok(JSON.parse(saved).transactions, '남겨둔 내용이 이상합니다');
+
+  // 다음에 열 때: 서버가 아주 느려도 화면은 곧바로 나와야 한다
+  const next = openApp({ signedIn: true, slowServer: true, ledger: saved });
+  await wait(120);
+  assert.equal(st(next.doc, 'screens'), '보임', '서버를 기다리느라 빈 화면입니다');
+  assert.equal(st(next.doc, 'loading'), '숨김');
+  assert.match(next.doc.getElementById('month-label').textContent, /2026년 8월/);
+});
+
+test('새 자료를 못 받아와도 보던 화면을 뺏지 않는다', { skip }, async () => {
+  const first = openApp({ signedIn: true });
+  await wait();
+  const saved = first.win.localStorage.getItem('ledger');
+
+  // 인터넷이 끊긴 상황
+  const next = openApp({ signedIn: true, deadServer: true, ledger: saved });
+  await wait();
+  assert.equal(st(next.doc, 'screens'), '보임', '보던 내역이 사라졌습니다');
+  assert.equal(st(next.doc, 'fatal'), '숨김', '오류 화면으로 덮었습니다');
+});
+
+test('로그아웃하면 남겨둔 내역을 지운다', { skip }, async () => {
+  const { win, doc } = openApp({ signedIn: true });
+  await wait();
+  assert.ok(win.localStorage.getItem('ledger'), '남겨둔 내역이 없습니다');
+
+  win.eval("signOut('테스트')");
+  assert.equal(win.localStorage.getItem('ledger'), null, '로그아웃했는데 내역이 남아 있습니다');
+  assert.equal(st(doc, 'signin'), '보임');
 });

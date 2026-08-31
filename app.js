@@ -192,6 +192,7 @@ function expired(token) {
 /** 로그인 화면으로 돌아간다. */
 function signOut(why) {
   keepToken('');
+  forgetLedger();
   $('#loading').hidden = true;
   $('#screens').hidden = true;
   $('#header').hidden = true;
@@ -1359,29 +1360,77 @@ function onSignedIn(token) {
   openLedger();
 }
 
+/**
+ * 지난번에 본 내역을 이 기기에 남겨둔다.
+ *
+ * 앱을 열 때마다 시트에서 다 읽어오기를 기다리면 몇 초씩 빈 화면을 본다.
+ * 지난번 것을 먼저 그려두면 곧바로 쓸 수 있고, 새 자료는 뒤에서 받아 바꿔 끼운다.
+ */
+var LEDGER_KEY = 'ledger';
+
+function saveLedger(data) {
+  try {
+    localStorage.setItem(LEDGER_KEY, JSON.stringify(data));
+  } catch (e) {
+    // 자리가 없으면 그냥 매번 받아온다
+  }
+}
+
+function lastLedger() {
+  try {
+    var raw = localStorage.getItem(LEDGER_KEY);
+    if (!raw) return null;
+    var data = JSON.parse(raw);
+    return data && data.transactions && data.categories ? data : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function forgetLedger() {
+  try { localStorage.removeItem(LEDGER_KEY); } catch (e) { /* 없으면 그만 */ }
+}
+
+/** 화면을 열어 보여준다. */
+function reveal(data) {
+  if (data.sheetUrl) $('#sheet-link').href = data.sheetUrl;
+  apply(data);
+  $('#loading').hidden = true;
+  $('#header').hidden = false;
+  $('#screens').hidden = false;
+  $('#tabbar').hidden = false;
+  $('#btn-add').hidden = false;
+}
+
 /** 자료를 받아 화면을 채운다. */
 function openLedger() {
+  // 지난번에 본 것이 있으면 기다리지 않고 먼저 보여준다
+  var seen = lastLedger();
+  if (seen) {
+    reveal(seen);
+    showTab('calendar');
+    busy(true);
+  }
+
   var stuck = setTimeout(function () {
-    fatal('20초 동안 응답이 없습니다. config.js 의 apiUrl 과 배포 상태를 확인해 주세요.');
+    if (!seen) fatal('20초 동안 응답이 없습니다. config.js 의 apiUrl 과 배포 상태를 확인해 주세요.');
   }, 20000);
 
   call('getBootstrap', '')
     .then(function (data) {
       clearTimeout(stuck);
-      if (data.sheetUrl) $('#sheet-link').href = data.sheetUrl;
-      apply(data);
-      showTab('calendar');
-      $('#loading').hidden = true;
-      $('#header').hidden = false;
-      $('#screens').hidden = false;
-      $('#tabbar').hidden = false;
-      $('#btn-add').hidden = false;
+      if (seen) busy(false);
+      saveLedger(data);
+      reveal(data);
+      if (!seen) showTab('calendar');
     })
     ['catch'](function (err) {
       clearTimeout(stuck);
       var msg = (err && err.message) || '서버와 연결하지 못했습니다.';
+      // 지난번 것을 이미 보여주고 있으면, 화면을 뺏지 않고 알려만 준다
+      if (seen) { busy(false); toast(msg); return; }
       // 명단에 없는 사람이면 오류가 아니라 로그인 화면으로 돌려보낸다
-      if (/로그인|명단|권한/.test(msg)) signOut(msg);
+      if (/로그인|명단|권한|초대/.test(msg)) signOut(msg);
       else fatal(msg);
     });
 }

@@ -581,15 +581,21 @@ test('잘못된 시작일은 막는다', () => {
   }
 });
 
-test('시작일은 시트에 사람이 읽을 수 있게 저장된다', () => {
+test('시작일과 종료일이 시트에 사람이 읽을 수 있게 저장된다', () => {
   const gas = freshLedger();
   gas.call('updateSettings', { startDay: 24, month: '2026-08' });
+
   const rows = gas.dump('설정');
   assert.deepEqual(rows[0], ['항목', '값', '설명']);
   assert.equal(rows[1][0], '월 시작일');
   assert.equal(rows[1][1], 24);
+  assert.equal(rows[2][0], '월 종료일');
+  assert.equal(rows[2][1], 23, '시작일만 바꾸면 종료일은 그 앞날로 맞춰져야 합니다');
+
   // 시트에서 직접 고쳐도 앱이 따라간다
-  gas.context.sheet_('설정').getRange(2, 2).setValue(10);
+  const 설정 = gas.context.sheet_('설정');
+  설정.getRange(2, 2).setValue(10);
+  설정.getRange(3, 2).setValue(9);
   assert.deepEqual(gas.call('getMonthData', '2026-08').range, { from: '2026-07-10', to: '2026-08-09' });
 });
 
@@ -780,13 +786,38 @@ test('시작일을 정하면 종료일이 따라온다', () => {
   assert.deepEqual(set({ startDay: 31 }), { startDay: 31, endDay: 30 });
 });
 
-test('종료일을 정하면 시작일이 따라온다', () => {
+test('종료일만 바꾸면 시작일은 그대로 두고 끝만 옮긴다', () => {
   const gas = freshLedger();
-  const set = (endDay) => gas.call('updateSettings', { endDay, month: '2026-08' }).settings;
+  gas.call('updateSettings', { startDay: 24, month: '2026-08' });
 
-  assert.deepEqual(set(23), { startDay: 24, endDay: 23 });
-  assert.deepEqual(set(31), { startDay: 1, endDay: 31 });  // 31일 = 말일
-  assert.deepEqual(set(0), { startDay: 1, endDay: 31 });   // 0 도 같은 뜻으로 받아준다
+  // 전달 24일부터 이번달 25일까지 — 일부러 이틀 겹치게 잡는 경우
+  const out = gas.call('updateSettings', { endDay: 25, month: '2026-08' });
+  assert.deepEqual(out.settings, { startDay: 24, endDay: 25 });
+  assert.deepEqual(out.range, { from: '2026-07-24', to: '2026-08-25' });
+
+  // 그 다음 달은 8월 24일에 시작하므로 8/24·8/25가 두 달에 함께 들어간다
+  const 구월 = gas.call('getMonthData', '2026-09').range;
+  assert.deepEqual(구월, { from: '2026-08-24', to: '2026-09-25' });
+});
+
+test('종료일을 당기면 비는 날이 생긴다', () => {
+  const gas = freshLedger();
+  gas.call('updateSettings', { startDay: 24, month: '2026-08' });
+  const out = gas.call('updateSettings', { endDay: 20, month: '2026-08' });
+
+  assert.deepEqual(out.range, { from: '2026-07-24', to: '2026-08-20' });
+  // 8/21~8/23 은 어느 달에도 안 들어간다. 막지는 않되 화면이 알려준다.
+  assert.equal(gas.call('getMonthData', '2026-09').range.from, '2026-08-24');
+});
+
+test('시작일을 바꾸면 종료일은 딱 붙는 기본값으로 돌아간다', () => {
+  const gas = freshLedger();
+  gas.call('updateSettings', { startDay: 24, month: '2026-08' });
+  gas.call('updateSettings', { endDay: 25, month: '2026-08' });
+
+  // 겹쳐둔 상태에서 시작일만 다시 바꾸면, 모르는 새 겹친 채로 남지 않게 한다
+  const out = gas.call('updateSettings', { startDay: 25, month: '2026-08' });
+  assert.deepEqual(out.settings, { startDay: 25, endDay: 24 });
 });
 
 test('시작일과 종료일 사이에 빈 날이 생기지 않는다', () => {

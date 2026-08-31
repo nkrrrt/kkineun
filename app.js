@@ -808,24 +808,25 @@ function renderSettings() {
 /**
  * 한 달의 시작일과 종료일.
  *
- * 둘은 붙어 있는 값이다. 24일에 시작하면 23일에 끝난다. 따로 정하게 두면 그
- * 사이에 어느 달에도 안 잡히는 빈 날이 생기고, 그 날 쓴 돈이 사라진 것처럼
- * 보인다. 그래서 한쪽을 고치면 다른 쪽이 따라온다.
+ * 따로 정할 수 있다. 시작일 바로 앞날에 끝내면 딱 붙고, 그보다 뒤로 두면 두 달이
+ * 겹치고, 앞으로 두면 어느 달에도 안 들어가는 날이 생긴다. 셋 다 쓸 수 있게
+ * 두되, 지금이 어느 경우인지 화면에 적어 모르고 지나치지 않게 한다.
  */
 function endDayOf(startDay) {
   return startDay <= 1 ? 31 : startDay - 1;
 }
 
+/** 지금 설정이 딱 붙는지, 겹치는지, 비는지. */
+function cycleShift() {
+  return state.settings.endDay - endDayOf(state.settings.startDay);
+}
+
 function fillDays(sel, kind) {
   if (sel.options.length) return;
   var html = '';
-  if (kind === 'end') {
-    // 31일은 곧 '그 달의 마지막 날'이다. 2월처럼 짧은 달은 28·29일에 끝난다.
-    for (var e = 1; e <= 31; e++) {
-      html += '<option value="' + e + '">' + e + '일' + (e === 31 ? ' (말일)' : '') + '</option>';
-    }
-  } else {
-    for (var d = 1; d <= 31; d++) html += '<option value="' + d + '">' + d + '일</option>';
+  for (var d = 1; d <= 31; d++) {
+    var tail = (kind === 'end' && d === 31) ? ' (말일)' : '';
+    html += '<option value="' + d + '">' + d + '일' + tail + '</option>';
   }
   sel.innerHTML = html;
 }
@@ -837,28 +838,29 @@ function renderStartDay() {
   fillDays(start, 'start');
   fillDays(end, 'end');
   if (!start.dataset.wired) {
-    start.addEventListener('change', function () {
-      saveCycle({ startDay: Number(start.value) });
-    });
-    end.addEventListener('change', function () {
-      saveCycle({ endDay: Number(end.value) });
-    });
+    start.addEventListener('change', function () { saveCycle({ startDay: Number(start.value) }); });
+    end.addEventListener('change', function () { saveCycle({ endDay: Number(end.value) }); });
     start.dataset.wired = '1';
   }
 
-  var day = state.settings.startDay;
-  start.value = String(day);
-  end.value = String(endDayOf(day));
+  start.value = String(state.settings.startDay);
+  end.value = String(state.settings.endDay);
 
+  var shift = cycleShift();
   var note = $('#start-day-note');
-  if (day <= 1) {
-    note.innerHTML = '지금은 <b>달력 그대로</b>예요. 1일 ~ 말일.<br />' +
-      '월급날이 25일이면 시작일을 <b>25일</b>로 바꿔보세요.';
+  var head = '지금 보는 <b>' + monthLabel(state.month) + '</b>은 <b>' + rangeLabel() + '</b>.';
+
+  if (shift === 0) {
+    note.innerHTML = head + '<br /><span class="muted">달과 달이 딱 붙어 있어요. ' +
+      '겹치는 날도, 빠지는 날도 없습니다.</span>';
+  } else if (shift > 0) {
+    note.innerHTML = head + '<br /><b class="warn-text">끝을 ' + shift + '일 늘렸어요.</b> ' +
+      '<span class="muted">그 ' + shift + '일은 이번 달과 다음 달에 <b>모두</b> 들어갑니다. ' +
+      '그동안 쓴 돈은 두 달 합계에 각각 더해져요.</span>';
   } else {
-    note.innerHTML = '<b>' + day + '일</b>부터 <b>' + (day - 1) + '일</b>까지를 한 달로 세요.<br />' +
-      '지금 보는 <b>' + monthLabel(state.month) + '</b>은 <b>' + rangeLabel() + '</b>.<br />' +
-      '<span class="muted">둘 중 하나를 고치면 나머지가 따라옵니다. 빈 날이 생기면 ' +
-      '그날 쓴 돈이 어느 달에도 안 잡히거든요.</span>';
+    note.innerHTML = head + '<br /><b class="warn-text">끝을 ' + (-shift) + '일 당겼어요.</b> ' +
+      '<span class="muted">그 ' + (-shift) + '일은 <b>어느 달에도</b> 안 들어갑니다. ' +
+      '그동안 쓴 돈은 어떤 달 합계에도 안 잡혀요.</span>';
   }
 }
 
@@ -870,9 +872,7 @@ function saveCycle(change) {
     .then(function (d) {
       apply(d);
       renderStartDay();
-      toast(d.settings.startDay <= 1
-        ? '달력 기준으로 바꿨어요'
-        : d.settings.startDay + '일 ~ ' + (d.settings.startDay - 1) + '일로 바꿨어요');
+      toast(d.settings.startDay + '일 ~ ' + d.settings.endDay + '일로 바꿨어요');
     })
     ['catch'](function (e) {
       toast(e.message);

@@ -14,4 +14,4 @@ var CONFIG = {
 };
 
 /** 지금 돌고 있는 판. 설정 화면 맨 아래에 보인다. 고칠 때마다 올린다. */
-var APP_VERSION = '20260831g';
+var APP_VERSION = '20260831h';

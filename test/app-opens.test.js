@@ -311,11 +311,9 @@ test('로그아웃하면 남겨둔 내역을 지운다', { skip }, async () => {
   assert.equal(st(doc, 'signin'), '보임');
 });
 
-test('설정에서 시작일과 종료일이 짝으로 움직인다', { skip }, async () => {
+test('시작일·종료일을 따로 정할 수 있고, 겹치면 알려준다', { skip }, async () => {
   const { doc } = openApp();
   await wait();
-
-  // 설정 탭 열기
   [...doc.querySelectorAll('.tabbar button')].forEach((b) => {
     if (b.getAttribute('data-tab') === 'settings') b.click();
   });
@@ -323,20 +321,23 @@ test('설정에서 시작일과 종료일이 짝으로 움직인다', { skip }, 
 
   const start = doc.getElementById('set-start-day');
   const end = doc.getElementById('set-end-day');
-  assert.ok(start && end, '시작일·종료일 칸이 없습니다');
+  const note = doc.getElementById('start-day-note');
+  const fire = (el) => el.dispatchEvent(new doc.defaultView.Event('change'));
+
+  assert.equal(start.options.length, 31, '시작일이 31일까지 안 나옵니다');
   assert.equal(end.options.length, 31, '종료일이 31일까지 안 나옵니다');
-  assert.match(end.options[30].textContent, /말일/, '31일이 말일이라고 안 적혀 있습니다');
 
-  // 시작일을 24일로 → 종료일이 23일로 따라와야 한다
-  start.value = '24';
-  start.dispatchEvent(new doc.defaultView.Event('change'));
+  // 시작일 24 → 종료일은 딱 붙는 23으로
+  start.value = '24'; fire(start);
   await wait(200);
-  assert.equal(start.value, '24');
-  assert.equal(end.value, '23', '종료일이 안 따라왔습니다');
+  assert.equal(end.value, '23');
+  assert.match(note.textContent, /딱 붙어/, '딱 붙는다고 안 알려줍니다');
 
-  // 종료일을 말일로 → 시작일이 1일로 따라와야 한다
-  end.value = '31';
-  end.dispatchEvent(new doc.defaultView.Event('change'));
+  // 종료일만 25로 → 시작일은 24 그대로, 겹친다고 알려줘야 한다
+  end.value = '25'; fire(end);
   await wait(200);
-  assert.equal(start.value, '1', '시작일이 안 따라왔습니다');
+  assert.equal(start.value, '24', '시작일이 멋대로 바뀌었습니다');
+  assert.equal(end.value, '25');
+  assert.match(note.textContent, /모두/, '겹친다고 안 알려줍니다');
+  assert.match(note.textContent, /7\.24 ~ 8\.25/, '기간이 틀립니다: ' + note.textContent);
 });

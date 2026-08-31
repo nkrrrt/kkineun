@@ -19,6 +19,7 @@ var MEMBER_HEADERS = ['이메일', '표시이름', '첫접속'];
 var SETTINGS_HEADERS = ['항목', '값', '설명'];
 
 var KEY_START_DAY = '월 시작일';
+var KEY_END_DAY = '월 종료일';
 
 var DEFAULT_START_DAY = 1;
 
@@ -322,6 +323,11 @@ function ensureSheets_() {
       DEFAULT_START_DAY,
       '한 달을 며칠부터 셀지 정합니다. 예를 들어 24로 두면 8월은 7월 24일 ~ 8월 23일이 됩니다. (1이면 달력과 같음)'
     ]);
+    settings.appendRow([
+      KEY_END_DAY,
+      31,
+      '한 달을 며칠에 끝낼지 정합니다. 31은 그 달의 마지막 날이라는 뜻입니다. 시작일 바로 앞날보다 뒤로 두면 두 달이 겹칩니다.'
+    ]);
   }
 
   if (cache) cache.put(CACHE_SETUP, '1', CACHE_SECONDS);
@@ -492,33 +498,33 @@ function toSheetDate_(iso) {
 
 function readSettings_() {
   var startDay = DEFAULT_START_DAY;
+  var endDay = null;
   rows_(SHEET_SETTINGS, SETTINGS_HEADERS.length).forEach(function (r) {
-    if (String(r[0] || '').trim() !== KEY_START_DAY) return;
+    var key = String(r[0] || '').trim();
     var n = Number(r[1]);
-    if (isFinite(n) && Math.floor(n) === n && n >= 1 && n <= 31) startDay = n;
+    if (!isFinite(n) || Math.floor(n) !== n || n < 1 || n > 31) return;
+    if (key === KEY_START_DAY) startDay = n;
+    else if (key === KEY_END_DAY) endDay = n;
   });
-  return { startDay: startDay, endDay: endDayOf_(startDay) };
+  // 종료일을 안 정했으면 시작일 바로 앞날로 본다 (겹치지도 비지도 않는 기본값)
+  return { startDay: startDay, endDay: endDay === null ? endDayOf_(startDay) : endDay };
 }
 
 /**
- * 시작일에서 종료일을 구한다. 0 은 '말일'이라는 뜻이다.
- *
- * 한 달은 시작일 바로 앞날에 끝난다. 25일에 시작하면 24일에 끝나는 식이다.
- * 31일은 '그 달의 마지막 날'이라는 뜻이라, 2월이면 28·29일에 끝난다.
- * 둘을 따로 정하게 두면 사이에 빈 날이 생기고, 그 날 쓴 돈은 어느 달에도
- * 안 잡혀 사라진 것처럼 보인다. 그래서 하나를 정하면 나머지가 따라온다.
+ * 시작일만 정했을 때의 종료일. 한 달은 시작일 바로 앞날에 끝난다.
+ * 31 은 '그 달의 마지막 날'이라는 뜻이라, 2월이면 28·29일이 된다.
  */
 function endDayOf_(startDay) {
   return startDay <= 1 ? 31 : startDay - 1;
 }
 
-/** 종료일에서 시작일을 구한다. endDayOf_ 의 반대. */
-function startDayOf_(endDay) {
-  var n = Number(endDay);
-  if (!isFinite(n) || Math.floor(n) !== n || n < 0 || n > 31) {
-    fail_('종료일은 말일이거나 1에서 30 사이의 날짜여야 합니다.');
+/** 1~31 사이의 날짜인지 본다. */
+function checkDay_(value, label) {
+  var n = Number(value);
+  if (!isFinite(n) || Math.floor(n) !== n || n < 1 || n > 31) {
+    fail_(label + '은(는) 1에서 31 사이의 날짜여야 합니다.');
   }
-  return (n === 0 || n >= 31) ? 1 : n + 1;
+  return n;
 }
 
 /** 설정 시트에서 한 항목을 고치거나, 없으면 새로 만든다. */
@@ -538,21 +544,22 @@ function putSetting_(key, value, note) {
 function updateSettings(payload) {
   payload = payload || {};
 
-  // 시작일과 종료일 중 무엇을 보내든 받는다. 둘은 붙어 있는 값이다.
-  var startDay;
-  if (payload.endDay !== undefined && payload.startDay === undefined) {
-    startDay = startDayOf_(payload.endDay);
-  } else {
-    startDay = Number(payload.startDay);
-    if (!isFinite(startDay) || Math.floor(startDay) !== startDay || startDay < 1 || startDay > 31) {
-      fail_('월 시작일은 1에서 31 사이의 숫자여야 합니다.');
-    }
-  }
+  // 시작일과 종료일을 따로 정할 수 있다. 다만 시작일만 바꾸면 종료일은 기본 짝
+  // (시작일 바로 앞날)으로 맞춘다. 그래야 겹치거나 비는 날이 모르는 새 생기지 않는다.
+  // 겹치게 두고 싶으면 그 다음에 종료일을 따로 고르면 된다.
+  var now = readSettings_();
+  var startDay = payload.startDay === undefined ? now.startDay : checkDay_(payload.startDay, '시작일');
+  var endDay;
+  if (payload.endDay !== undefined) endDay = checkDay_(payload.endDay, '종료일');
+  else if (payload.startDay !== undefined) endDay = endDayOf_(startDay);
+  else endDay = now.endDay;
 
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
     putSetting_(KEY_START_DAY, startDay, '한 달을 며칠부터 셀지 정합니다.');
+    putSetting_(KEY_END_DAY, endDay,
+      '한 달을 며칠에 끝낼지 정합니다. 31은 그 달의 마지막 날이라는 뜻입니다.');
     return getMonthData(payload.month || defaultMonth_());
   } finally {
     lock.releaseLock();
@@ -580,20 +587,34 @@ function addDays_(iso, delta) {
 
 /**
  * 'YYYY-MM' 라벨이 실제로 며칠부터 며칠까지인지.
- * 시작일이 24면 2026-08 은 2026-07-24 ~ 2026-08-23 이다.
+ *
+ * 시작일이 2일 이상이면 전달에서 시작한다. 끝나는 날은 '다음 주기가 시작하기
+ * 전날'을 기준으로 잡고, 종료일을 따로 정했으면 그만큼 밀거나 당긴다.
+ *
+ *   시작 24 · 종료 23 → 8월은 7/24 ~ 8/23   (딱 붙는 기본)
+ *   시작 24 · 종료 25 → 8월은 7/24 ~ 8/25   (이틀 늘림 — 9월과 겹친다)
+ *
+ * 기준선을 먼저 잡고 미는 방식이라, 2월처럼 짧은 달에서 날짜가 당겨져도
+ * 주기가 어긋나지 않는다.
  */
-function periodRange_(month, startDay) {
+function periodRange_(month, startDay, endDay) {
   var p = month.split('-').map(Number);
   var year = p[0], m = p[1];
+  if (endDay === undefined || endDay === null) endDay = endDayOf_(startDay);
+
+  var from, edge;
   if (startDay <= 1) {
-    return { from: isoOf_(year, m, 1), to: isoOf_(year, m, daysInMonth_(year, m)) };
+    from = isoOf_(year, m, 1);
+    edge = isoOf_(year, m, daysInMonth_(year, m));
+  } else {
+    var py = m === 1 ? year - 1 : year;
+    var pm = m === 1 ? 12 : m - 1;
+    from = isoOf_(py, pm, clampDay_(py, pm, startDay));
+    edge = addDays_(isoOf_(year, m, clampDay_(year, m, startDay)), -1);
   }
-  var prevYear = m === 1 ? year - 1 : year;
-  var prevMonth = m === 1 ? 12 : m - 1;
-  return {
-    from: isoOf_(prevYear, prevMonth, clampDay_(prevYear, prevMonth, startDay)),
-    to: addDays_(isoOf_(year, m, clampDay_(year, m, startDay)), -1)
-  };
+
+  var shift = Number(endDay) - endDayOf_(startDay);
+  return { from: from, to: shift === 0 ? edge : addDays_(edge, shift) };
 }
 
 /** 어떤 날짜가 어느 달 라벨에 속하는지 (periodRange_ 의 반대) */
@@ -1209,7 +1230,7 @@ function getMonthData(month, ctx) {
   ctx = ctx || {};
   month = checkMonth_(month);
   var settings = ctx.settings || readSettings_();
-  var range = periodRange_(month, settings.startDay);
+  var range = periodRange_(month, settings.startDay, settings.endDay);
   var members = ctx.members || syncMembers_('');
   var cats = ctx.categories || readCategories_();
 

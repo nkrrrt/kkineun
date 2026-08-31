@@ -1390,7 +1390,8 @@ function openLedger() {
   // 화면 파일을 폰에 담아두는 일꾼을 깨운다. 이게 있어야 '앱으로 설치'가 된다.
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js')['catch'](function () {
+      // updateViaCache: 'none' — 일꾼 파일만은 브라우저가 쥐고 있던 것을 쓰지 않는다
+      navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })['catch'](function () {
         // 안 돼도 앱은 그대로 쓸 수 있다
       });
     });

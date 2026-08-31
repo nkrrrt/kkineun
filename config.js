@@ -6,7 +6,7 @@
  */
 var CONFIG = {
   // 1) 앱스 스크립트 배포 주소. .../exec 로 끝납니다.
-  apiUrl: '',
+  apiUrl: 'https://script.google.com/macros/s/AKfycbw8ZQ1wwp4PkAgpKXrilY70o2JIxf_ZH3z08szlzcrjVw5NFVSYSxXbdt-7FkLNHep7/exec',
 
   // 2) 구글 클라우드 콘솔에서 만든 웹 클라이언트 ID.
   //    ...apps.googleusercontent.com 으로 끝납니다.

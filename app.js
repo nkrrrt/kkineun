@@ -675,6 +675,44 @@ function pickForScope(rows) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 화면 테마                                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 밝게 / 어둡게.
+ *
+ * 시트가 아니라 이 기기에만 기억한다. 둘이 한 가계부를 쓰지만 화면 취향까지
+ * 같을 이유는 없고, 한쪽이 바꿨다고 상대 화면이 따라 바뀌면 곤란하다.
+ */
+var THEME_KEY = 'theme';
+
+function currentTheme() {
+  return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+}
+
+function setTheme(name) {
+  if (name === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  else document.documentElement.removeAttribute('data-theme');
+  try {
+    localStorage.setItem(THEME_KEY, name === 'dark' ? 'dark' : 'light');
+  } catch (e) {
+    // 저장을 못 해도 이번 화면에는 적용된다
+  }
+  renderTheme();
+}
+
+function renderTheme() {
+  var now = currentTheme();
+  $$('[data-theme-choice]').forEach(function (b) {
+    b.setAttribute('aria-selected', b.getAttribute('data-theme-choice') === now ? 'true' : 'false');
+  });
+}
+
+$$('[data-theme-choice]').forEach(function (b) {
+  b.addEventListener('click', function () { setTheme(b.getAttribute('data-theme-choice')); });
+});
+
+/* ------------------------------------------------------------------ */
 /* 설정                                                                */
 /* ------------------------------------------------------------------ */
 

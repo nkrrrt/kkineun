@@ -172,3 +172,25 @@ test('두 도우미가 서로를 덮어쓰지 않는다', { skip }, async () => 
   assert.ok(Array.isArray(win.$$('.tabbar button')), '$$ 가 목록을 안 돌려줍니다');
   assert.ok(win.$$('.tabbar button').length >= 4, '탭이 안 그려졌습니다');
 });
+
+test('탭을 모두 열어봐도 죽지 않는다', { skip }, async () => {
+  const { doc, win, errors } = openApp();
+  await wait();
+
+  // 설정 탭은 처음에 안 그려져서, 거기 있는 함수를 지워도 다른 테스트는 통과한다.
+  // 실제로 다 눌러봐야 잡힌다.
+  for (const btn of [...doc.querySelectorAll('.tabbar button')]) {
+    btn.click();
+    await wait(60);
+    assert.equal(doc.getElementById('fatal').hidden, true,
+      `${btn.textContent.trim()} 탭에서 죽었습니다: ` + doc.getElementById('fatal-msg').textContent);
+  }
+  assert.deepEqual(errors, [], '탭을 여는 중 오류가 났습니다');
+
+  // 설정 탭의 테마 단추가 살아 있는지
+  const dark = doc.querySelector('[data-theme-choice="dark"]');
+  assert.ok(dark, '테마 단추가 없습니다');
+  dark.click();
+  assert.equal(doc.documentElement.getAttribute('data-theme'), 'dark', '어둡게가 안 먹습니다');
+  assert.equal(win.localStorage.getItem('theme'), 'dark');
+});

@@ -809,6 +809,7 @@ function parseBankText(text, baseYear) {
   var out = [];
   var month = 0, day = 0;
   var buffer = [];
+  var before = null;      // 바로 앞 날짜 머리글. 거래내역은 최신순이라 이보다 뒤일 수 없다.
 
   function flush() {
     var row = buildRow(buffer, year, month, day);
@@ -817,14 +818,16 @@ function parseBankText(text, baseYear) {
   }
 
   lines.forEach(function (line) {
-    var d = line.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+    var d = line.match(/^\D{0,3}(\d{1,2})\s*월\s*(\d{1,3})\s*\S{0,2}$/);
     if (d) {
       // 날짜가 바뀌기 전에 읽던 것을 먼저 마무리한다. 시각의 콜론이 인식되지
       // 않으면(11:13 이 1133 으로) 그 줄로 끝맺지 못하는데, 그때 버려버리면
       // 마지막 한 건이 통째로 사라진다.
       flush();
-      month = Number(d[1]);
-      day = Number(d[2]);
+      var got = fixDay(Number(d[1]), Number(d[2]), before);
+      month = got.month;
+      day = got.day;
+      before = got;
       return;
     }
     // 시각으로 한 건이 끝난다. 앞에 아이콘이 글자로 섞여 들어오기도 한다.
@@ -844,9 +847,36 @@ function parseBankText(text, baseYear) {
   return out;
 }
 
+/**
+ * 한 줄에서 금액으로 볼 만한 것들을 뽑는다.
+ *
+ * '원'을 믿을 수 없다. 실제로 이렇게 인식된다: -2,3504 / -6,200& / 16,500!
+ * 그래서 '원'이 붙어야만 금액으로 보면 열두 건 중 일곱 건을 놓친다.
+ *
+ * 셋 중 하나면 금액으로 본다.
+ *   1) 천 단위 쉼표가 있다 (2,350)
+ *   2) 뒤에 원 비슷한 글자가 붙었다 (450원)
+ *   3) 앞에 부호가 있다 (-450)
+ * 그냥 숫자 뭉치(AB12 의 25, 깨진 시각 1133)는 금액으로 보지 않는다.
+ */
+function moneyIn(line) {
+  var re = /([+\-\u2212])?\s*(\d{1,3}(?:[,\s]\d{3})+|\d{1,9})\s*([원웜월])?/g;
+  var out = [];
+  var m;
+  while ((m = re.exec(line)) !== null) {
+    var raw = m[2];
+    var grouped = /[,\s]/.test(raw);
+    if (!grouped && !m[3] && !m[1]) continue;      // 그냥 숫자는 금액이 아니다
+    var value = Number(raw.replace(/[^0-9]/g, ''));
+    if (!value) continue;
+    out.push({ text: m[0], value: value, sign: m[1] || '' });
+  }
+  return out;
+}
+
 /** 이 줄들 안에 금액으로 볼 만한 것이 있는가. */
 function hasMoney(lines) {
-  return lines.some(function (l) { return /\d[\d,\s]{0,13}\s*[원웜월]/.test(l); });
+  return lines.some(function (l) { return moneyIn(l).length > 0; });
 }
 
 /**
@@ -857,7 +887,7 @@ function hasMoney(lines) {
  */
 function hasSigned(lines) {
   return lines.some(function (l) {
-    return /[-\u2212+]/.test(l) && /\d[\d,\s]{0,13}\s*[원웜월]/.test(l);
+    return /[-\u2212+]/.test(l) && moneyIn(l).length > 0;
   });
 }
 
@@ -865,7 +895,6 @@ function hasSigned(lines) {
 function buildRow(buffer, year, month, day) {
   if (!buffer.length || !month || !day) return null;
 
-  var money = /([+\-\u2212])?\s*(\d[\d,\s]{0,13})\s*[원웜월]/g;
   var picked = null;
   var cleaned = [];
 
@@ -874,18 +903,19 @@ function buildRow(buffer, year, month, day) {
     var minus = /[\-\u2212]/.test(line);
     var plus = /\+/.test(line);
     var rest = line;
-    var m;
 
-    money.lastIndex = 0;
-    while ((m = money.exec(line)) !== null) {
-      var amount = Number(String(m[2]).replace(/[^0-9]/g, ''));
-      if (!amount) continue;
+    moneyIn(line).forEach(function (found) {
+      var signed = minus || plus || !!found.sign;
       // 부호가 있는 줄의 금액이 진짜 금액이다. 잔액에는 부호가 없다.
-      if (!picked || (!picked.signed && (minus || plus))) {
-        picked = { amount: amount, signed: minus || plus, income: plus && !minus };
+      if (!picked || (!picked.signed && signed)) {
+        picked = {
+          value: found.value,
+          signed: signed,
+          income: (found.sign === '+' || (plus && !minus))
+        };
       }
-      rest = rest.split(m[0]).join(' ');
-    }
+      rest = rest.split(found.text).join(' ');
+    });
 
     // 아이콘이 글자로 섞여 들어온 것과 잡부호를 앞뒤에서 걷어낸다
     rest = rest
@@ -902,9 +932,29 @@ function buildRow(buffer, year, month, day) {
   return {
     date: isoFrom(year, month, day),
     kind: picked.income ? 'income' : 'expense',
-    amount: picked.amount,
+    amount: picked.value,
     memo: cleaned.join(' ').slice(0, 60)
   };
+}
+
+/**
+ * '일'이 깨져 날짜에 숫자가 하나 더 붙은 것을 바로잡는다.
+ *
+ * '9월 1일'이 '9월 12'로 읽히는 일이 있다. 그러면 9월 1일 내역 여섯 건이 통째로
+ * 9월 12일이 되어버린다. 거래내역은 늘 최신순으로 늘어서므로, 같은 달 안에서
+ * 앞 날짜보다 뒤로 가는 날짜는 뭔가 잘못된 것이다. 그때 끝자리를 떼어 보고
+ * 앞뒤가 맞으면 그것을 쓴다. 달이 넘어가는 것은 정상이라 손대지 않는다.
+ */
+function fixDay(month, day, before) {
+  var ok = function (d) { return d >= 1 && d <= 31; };
+  if (!ok(day)) day = Math.floor(day / 10);
+  if (!ok(day)) day = 1;
+
+  if (before && before.month === month && day > before.day) {
+    var trimmed = Math.floor(day / 10);
+    if (ok(trimmed) && trimmed <= before.day) day = trimmed;
+  }
+  return { month: month, day: day };
 }
 
 /**

@@ -720,3 +720,91 @@ test('가져오기 창도 넣기가 위에 있다', { skip }, async () => {
   assert.ok(head.contains(doc.getElementById('btn-shot-save')), '넣기가 위에 없습니다');
   assert.equal(doc.getElementById('btn-shot-save').textContent, '3건 넣기');
 });
+
+/**
+ * 두 번째 화면(카드 내역)을 글자 인식에 통과시켜 나온 그대로.
+ * 여기서는 '원'이 4 · & · ! 로 깨지고, '9월 1일'이 '9월 12'로 읽혔다.
+ */
+const 카드화면 = `&              | 카드 후 관리
+9월 2일
+~ AB12%w CDE    -2,3504
+18:29            2021258!
+Ky 카드 캐시백         +100원
+18:09            204,475원
+~ AB12&t CDE    -6,200&
+18:09            204,375
+9월 12
+o “Piero       16,500!
+19:28            2105758
+~ AB12ttuCDE    -2,0004
+15:33            227075원
+il  회비      -1,000,000&
+® 13:20            229,075
+0  홍길동      +1,000,000&
+13:19           1,229,075
+oO  한전(홍길동)      -6,450원
+11:23            229,075원
+  홍길동상회       -450원
+11:06            235,525원
+8월 31일
+Ky 카드 캐시백         +100원
+17:25            235,975원
+2, MRXXEMOEY -4,190원
+17:25            235,875원
+공과금
+(>  공과금2     -12,500원
+(어느페이)       fideo,`;
+
+test('원이 깨져도 열두 건을 모두 찾는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  const rows = win.parseBankText(카드화면, 2026);
+  const 금액 = JSON.parse(JSON.stringify(rows.map((r) => r.amount)));
+
+  // -2,3504 / -6,200& / 16,500! 처럼 원이 깨진 것까지 다 잡아야 한다
+  assert.deepEqual(금액, [
+    2350, 100, 6200,
+    16500, 2000, 10000000, 10000000, 6450, 450,
+    100, 4190, 12500,
+  ]);
+});
+
+test('더하기 부호가 붙은 것은 수입으로 넣는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  const rows = win.parseBankText(카드화면, 2026);
+  const 수입 = JSON.parse(JSON.stringify(
+    rows.filter((r) => r.kind === 'income').map((r) => r.amount)));
+
+  // 카드 캐시백 두 번(+100), 홍길동(+1,000,000)
+  assert.deepEqual(수입, [100, 10000000, 100]);
+});
+
+test("'일'이 깨져도 날짜가 앞으로 튀지 않는다", { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  const rows = win.parseBankText(카드화면, 2026);
+  const 날짜 = JSON.parse(JSON.stringify(rows.map((r) => r.date)));
+
+  // '9월 12'로 읽힌 줄은 9월 1일이라야 한다. 12일이면 여섯 건이 엉뚱한 날로 간다.
+  assert.deepEqual(날짜, [
+    '2026-09-02', '2026-09-02', '2026-09-02',
+    '2026-09-01', '2026-09-01', '2026-09-01', '2026-09-01', '2026-09-01', '2026-09-01',
+    '2026-08-31', '2026-08-31', '2026-08-31',
+  ]);
+});
+
+test('잔액과 화면 버튼은 내역으로 들어오지 않는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  const rows = win.parseBankText(카드화면, 2026);
+  const 잔액 = [202125, 204475, 204375, 210575, 227075, 229075, 235525, 235975, 235875, 10229075];
+  rows.forEach((r) => {
+    assert.ok(잔액.indexOf(r.amount) === -1, `잔액이 들어왔습니다: ${r.amount}`);
+  });
+  assert.ok(!rows.some((r) => /관리|채우기|보내기/.test(r.memo)), '화면 버튼이 내역이 됐습니다');
+});

@@ -449,3 +449,88 @@ test('기록 창에서 카테고리가 맨 아래에 온다', { skip }, async ()
   assert.ok(자리('메모') < 자리('어디에?'), '메모가 카테고리보다 아래입니다');
   assert.equal(자리('어디에?'), order.length - 1, '카테고리가 맨 아래가 아닙니다');
 });
+
+/* ------------------------------------------------------------------ */
+/* 은행 화면 글자 읽기                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 아래 글자는 실제 토스뱅크 화면을 글자 인식에 통과시켜 나온 그대로다.
+ * 사람이 다듬지 않았다 — 인식이 틀린 것까지 그대로 두어야 진짜 시험이 된다.
+ */
+const 토스화면 = `8월 30일
+
+8 ㅎ주자유시장상인회  -200원
+16:40            259565월
+
+『개 무지개주유소       -50,000원
+15:58             252765원
+
+8월 29일
+
+= 、. 어느 바이크
+
+- 어느페이 、 > 0 820원
+
+302,765원
+
+11:13
+
+8월 27일`;
+
+test('토스 화면에서 읽은 글자를 내역으로 바꾼다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  const rows = win.parseBankText(토스화면, 2026);
+  assert.equal(rows.length, 3, '세 건이 나와야 합니다: ' + JSON.stringify(rows));
+
+  // 금액과 날짜는 정확해야 한다. 이름은 인식이 틀릴 수 있어 고쳐 쓰게 한다.
+  // jsdom 안에서 만든 배열은 바깥 배열과 종류가 달라 그대로는 못 비교한다
+  const 뽑은것 = JSON.parse(JSON.stringify(rows.map((r) => [r.date, r.kind, r.amount])));
+  assert.deepEqual(뽑은것, [
+    ['2026-08-30', 'expense', 200],
+    ['2026-08-30', 'expense', 50000],
+    ['2026-08-29', 'expense', 820],
+  ]);
+
+  assert.match(rows[0].memo, /주자유시장상인회/);
+  assert.match(rows[1].memo, /무지개주유소/);
+  // 두 줄로 나뉜 이름도 이어 붙여야 한다
+  assert.match(rows[2].memo, /카카오/);
+  assert.match(rows[2].memo, /페이/);
+});
+
+test('잔액을 금액으로 잘못 읽지 않는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  const rows = win.parseBankText(토스화면, 2026);
+  // 화면의 잔액은 252,565 / 252,765 / 302,765 원이다. 하나라도 금액에 섞이면 안 된다.
+  const 잔액 = [252565, 259565, 252765, 302765];
+  rows.forEach((r) => {
+    assert.ok(잔액.indexOf(r.amount) === -1, `잔액이 금액으로 들어갔습니다: ${r.amount}`);
+  });
+});
+
+test('내역 없이 날짜만 있는 줄은 버린다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 화면 맨 아래 '8월 27일'은 내역이 잘려 안 보인다. 빈 건이 생기면 안 된다.
+  const rows = win.parseBankText(토스화면, 2026);
+  assert.equal(rows.filter((r) => r.date === '2026-08-27').length, 0);
+  assert.ok(rows.every((r) => r.amount > 0), '금액이 0인 건이 있습니다');
+});
+
+test('연도가 없는 화면에서 앞날로 읽지 않는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 1월에 12월 내역을 보면, 올해 12월이 아니라 작년 12월이라야 한다
+  const rows = win.parseBankText('12월 25일\n스타벅스 -5,600원\n09:00 1,000원', new Date().getFullYear());
+  assert.equal(rows.length, 1);
+  const 일주일뒤 = new Date();
+  일주일뒤.setDate(일주일뒤.getDate() + 7);
+  assert.ok(rows[0].date <= 일주일뒤.toISOString().slice(0, 10), '앞날로 읽었습니다: ' + rows[0].date);
+});

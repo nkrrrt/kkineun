@@ -1,2 +1,5 @@
 node_modules/
 .DS_Store
+
+# 글자 인식 데이터. 시험할 때 받아지는 것이라 저장소에 둘 것이 아니다.
+*.traineddata

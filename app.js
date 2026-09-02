@@ -772,6 +772,129 @@ function pickForScope(rows) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 은행 화면에서 뽑아낸 글자 읽기                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 사진에서 읽어낸 글자를 내역 목록으로 바꾼다.
+ *
+ * 실제로 토스뱅크 화면을 읽혀 보고 그 결과에 맞춰 만들었다. 글자 인식은 완벽하지
+ * 않다. 실제로 이렇게 나왔다:
+ *
+ *   8월 30일
+ *   8 ㅎ주자유시장상인회  -200원        ← 왼쪽 '8'은 아이콘, '충'을 'ㅎ'으로 봤다
+ *   16:40            259565월          ← 잔액. 쉼표가 날아가고 원을 월로 봤다
+ *   『개 무지개주유소       -50,000원
+ *   15:58             252765원
+ *   8월 29일
+ *   = 、. 어느 바이크                 ← 가맹점 이름이 두 줄로 나뉘었다
+ *   - 어느페이 、 > 0 820원           ← -820원이 이렇게 흩어졌다
+ *   302,765원
+ *   11:13
+ *
+ * 그래서 이렇게 읽는다.
+ *  - 'N월 N일'을 만나면 그 뒤로는 그 날짜다. 연도는 화면에 없어서 따로 넣어준다.
+ *  - 시각(11:13)이 나오면 거기서 한 건이 끝난다. 시각 줄에 붙은 잔액은 버린다.
+ *  - 한 건 안에서 금액은 빼기 부호가 있는 줄에서 찾는다. 잔액에는 부호가 없다.
+ *  - 남은 글자를 이어 붙여 가맹점 이름으로 쓴다.
+ *
+ * 이름은 틀릴 수 있으므로 넣기 전에 고칠 수 있게 보여준다.
+ */
+function parseBankText(text, baseYear) {
+  var year = baseYear || new Date().getFullYear();
+  var lines = String(text || '').split(/\r?\n/)
+    .map(function (l) { return l.trim(); })
+    .filter(function (l) { return l; });
+
+  var out = [];
+  var month = 0, day = 0;
+  var buffer = [];
+
+  function flush() {
+    var row = buildRow(buffer, year, month, day);
+    if (row) out.push(row);
+    buffer = [];
+  }
+
+  lines.forEach(function (line) {
+    var d = line.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+    if (d) {
+      buffer = [];               // 날짜가 바뀌면 읽다 만 것은 버린다
+      month = Number(d[1]);
+      day = Number(d[2]);
+      return;
+    }
+    // 시각으로 한 건이 끝난다. 앞에 아이콘이 글자로 섞여 들어오기도 한다.
+    if (/^[^\d]{0,4}\d{1,2}\s*:\s*\d{2}/.test(line)) { flush(); return; }
+    buffer.push(line);
+  });
+  flush();
+
+  return out;
+}
+
+/** 한 건에서 금액·이름을 뽑는다. 못 뽑으면 null. */
+function buildRow(buffer, year, month, day) {
+  if (!buffer.length || !month || !day) return null;
+
+  var money = /([+\-\u2212])?\s*(\d[\d,\s]{0,13})\s*[원웜월]/g;
+  var picked = null;
+  var cleaned = [];
+
+  buffer.forEach(function (line) {
+    // 빼기 부호는 금액에서 멀리 떨어져 인식되기도 한다. 줄 전체를 보고 판단한다.
+    var minus = /[\-\u2212]/.test(line);
+    var plus = /\+/.test(line);
+    var rest = line;
+    var m;
+
+    money.lastIndex = 0;
+    while ((m = money.exec(line)) !== null) {
+      var amount = Number(String(m[2]).replace(/[^0-9]/g, ''));
+      if (!amount) continue;
+      // 부호가 있는 줄의 금액이 진짜 금액이다. 잔액에는 부호가 없다.
+      if (!picked || (!picked.signed && (minus || plus))) {
+        picked = { amount: amount, signed: minus || plus, income: plus && !minus };
+      }
+      rest = rest.split(m[0]).join(' ');
+    }
+
+    // 아이콘이 글자로 섞여 들어온 것과 잡부호를 앞뒤에서 걷어낸다
+    rest = rest
+      .replace(/^[^\uAC00-\uD7A3\u3131-\u318E0-9A-Za-z]+/, '')
+      .replace(/[^\uAC00-\uD7A3\u3131-\u318E0-9A-Za-z)\]]+$/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (rest.length > 1) cleaned.push(rest);
+  });
+
+  if (!picked) return null;
+
+  return {
+    date: isoFrom(year, month, day),
+    kind: picked.income ? 'income' : 'expense',
+    amount: picked.amount,
+    memo: cleaned.join(' ').slice(0, 60)
+  };
+}
+
+/**
+ * 연·월·일을 날짜로. 은행 화면에는 연도가 없어서 올해로 보되,
+ * 그러면 앞날이 되어버리는 경우(1월에 12월 내역을 볼 때)는 작년으로 본다.
+ */
+function isoFrom(year, month, day) {
+  var iso = year + '-' + pad2(month) + '-' + pad2(day);
+  var soon = new Date();
+  soon.setDate(soon.getDate() + 7);
+  if (iso > soon.toISOString().slice(0, 10)) {
+    iso = (year - 1) + '-' + pad2(month) + '-' + pad2(day);
+  }
+  return iso;
+}
+
+function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+/* ------------------------------------------------------------------ */
 /* 화면 테마                                                            */
 /* ------------------------------------------------------------------ */
 

@@ -270,6 +270,10 @@ button { cursor: pointer; }
 .cycle-tie { flex: 0 0 auto; padding-bottom: 11px; font-weight: 700; color: var(--muted); }
 .warn-text { color: var(--expense); }
 
+/* 사진·붙여넣기로 가져오기 — 캘린더와 내역 두 탭에 같이 둔다 */
+.import-row { justify-content: flex-end; gap: 7px; margin: 14px 0 4px; }
+#screen-list .import-row { margin: 6px 0 10px; }
+
 #paste-text { width: 100%; font: inherit; font-size: 14px; line-height: 1.6;
   background: var(--surface-2); color: var(--ink);
   border: 2px solid var(--edge); border-radius: 13px; padding: 10px 12px; resize: vertical; }

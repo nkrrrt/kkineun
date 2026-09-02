@@ -1280,11 +1280,14 @@ function saveShots() {
 var dlgShot = $('#dlg-shot');
 var dlgPaste = $('#dlg-paste');
 
-$('#btn-paste').addEventListener('click', function () {
+$$('[data-import="paste"]').forEach(function (b) { b.addEventListener('click', openPaste); });
+$$('[data-import="shot"]').forEach(function (b) { b.addEventListener('click', openShotPicker); });
+
+function openPaste() {
   $('#paste-text').value = '';
   $('#paste-error').hidden = true;
   dlgPaste.showModal();
-});
+}
 
 $('#form-paste').addEventListener('submit', function (e) {
   e.preventDefault();
@@ -1306,7 +1309,6 @@ $('#form-paste').addEventListener('submit', function (e) {
   dlgShot.showModal();
 });
 
-$('#btn-shot').addEventListener('click', openShotPicker);
 $('#shot-file').addEventListener('change', function (e) {
   var files = Array.prototype.slice.call(e.target.files || []);
   if (files.length) startShots(files);

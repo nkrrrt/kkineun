@@ -628,7 +628,7 @@ test('글자를 붙여넣어도 같은 확인 화면으로 간다', { skip }, as
   await wait();
   patchDom(doc);
 
-  doc.getElementById('btn-paste').click();
+  doc.querySelector('[data-import="paste"]').click();
   doc.getElementById('paste-text').value = 토스화면;
   doc.getElementById('form-paste').dispatchEvent(new win.Event('submit', { cancelable: true }));
   await wait(150);
@@ -667,7 +667,7 @@ test('붙여넣은 글자가 비었거나 내역이 없으면 알려준다', { s
   await wait();
   patchDom(doc);
 
-  doc.getElementById('btn-paste').click();
+  doc.querySelector('[data-import="paste"]').click();
   const 보내기 = () => doc.getElementById('form-paste')
     .dispatchEvent(new win.Event('submit', { cancelable: true }));
 
@@ -699,8 +699,11 @@ test('창을 스크롤해도 저장·취소가 위에 남아 있다', { skip }, 
   assert.ok(head.querySelector('[data-close]'), '취소가 위에 없습니다');
   assert.ok(!body.contains(doc.getElementById('btn-tx-save')), '저장이 아직 아래에 있습니다');
 
-  // 삭제는 실수로 누르면 곤란하니 저장 옆에 두지 않는다
-  assert.ok(body.contains(doc.getElementById('btn-tx-delete')), '삭제가 저장 옆에 붙었습니다');
+  // 삭제도 위에 둔다. 다만 저장에서 가장 먼 왼쪽 끝이고, 누르면 한 번 더 묻는다.
+  const acts = [...head.querySelectorAll('.modal-acts .btn')];
+  assert.ok(head.contains(doc.getElementById('btn-tx-delete')), '삭제가 위에 없습니다');
+  assert.equal(acts[0].id, 'btn-tx-delete', '삭제가 맨 왼쪽이 아닙니다');
+  assert.equal(acts[acts.length - 1].id, 'btn-tx-save', '저장이 맨 오른쪽이 아닙니다');
 
   // 길어지는 카테고리 목록은 스크롤 쪽에 있어야 한다
   assert.ok(body.contains(doc.getElementById('tx-categories')), '카테고리가 스크롤 밖에 있습니다');
@@ -711,7 +714,7 @@ test('가져오기 창도 넣기가 위에 있다', { skip }, async () => {
   await wait();
   patchDom(doc);
 
-  doc.getElementById('btn-paste').click();
+  doc.querySelector('[data-import="paste"]').click();
   doc.getElementById('paste-text').value = 토스화면;
   doc.getElementById('form-paste').dispatchEvent(new win.Event('submit', { cancelable: true }));
   await wait(150);
@@ -856,7 +859,7 @@ test('고쳐서 넣으면 그 이름을 기억해 둔다', { skip }, async () =>
   await wait();
   patchDom(doc);
 
-  doc.getElementById('btn-paste').click();
+  doc.querySelector('[data-import="paste"]').click();
   doc.getElementById('paste-text').value = 카드화면;
   doc.getElementById('form-paste').dispatchEvent(new win.Event('submit', { cancelable: true }));
   await wait(150);
@@ -870,4 +873,20 @@ test('고쳐서 넣으면 그 이름을 기억해 둔다', { skip }, async () =>
 
   const 기억 = JSON.parse(win.localStorage.getItem('names') || '{}');
   assert.ok(Object.values(기억).includes('AB12 어느점'), '고친 이름을 기억하지 않았습니다');
+});
+
+test('가져오기 버튼이 캘린더 탭에도 있다', { skip }, async () => {
+  const { doc } = openApp();
+  await wait();
+
+  for (const tab of ['calendar', 'list']) {
+    const screen = doc.getElementById('screen-' + tab);
+    assert.ok(screen.querySelector('[data-import="shot"]'), `${tab} 탭에 사진 버튼이 없습니다`);
+    assert.ok(screen.querySelector('[data-import="paste"]'), `${tab} 탭에 붙여넣기 버튼이 없습니다`);
+  }
+
+  // 어느 탭에서 눌러도 같은 창이 떠야 한다
+  patchDom(doc);
+  doc.querySelector('#screen-calendar [data-import="paste"]').click();
+  assert.equal(doc.getElementById('dlg-paste').hasAttribute('open'), true, '캘린더에서 안 열립니다');
 });

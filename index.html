@@ -35,7 +35,7 @@
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <link rel="stylesheet" href="styles.css?v=20260902h" />
+  <link rel="stylesheet" href="styles.css?v=20260902i" />
 </head>
 <body>
 
@@ -121,20 +121,32 @@
       </div>
       <div id="day-panel-body"></div>
     </div>
+
+    <!-- 두 탭에서 같이 쓴다. 누르는 곳이 여럿이라 id 대신 표시로 찾는다. -->
+    <div class="row import-row">
+      <button type="button" class="btn btn-ghost small" data-import="shot">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.2"/></svg>
+        사진에서 가져오기
+      </button>
+      <button type="button" class="btn btn-ghost small" data-import="paste">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6v3H9zM7 5H5v15h14V5h-2"/></svg>
+        붙여넣기
+      </button>
+    </div>
   </section>
 
   <!-- ───────── 내역 ───────── -->
   <section id="screen-list" class="screen" hidden>
-    <div class="row" style="justify-content: flex-end; margin: 6px 0 10px">
-      <button type="button" class="btn btn-ghost small" id="btn-shot">
+    <!-- 두 탭에서 같이 쓴다. 누르는 곳이 여럿이라 id 대신 표시로 찾는다. -->
+    <div class="row import-row">
+      <button type="button" class="btn btn-ghost small" data-import="shot">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.2"/></svg>
         사진에서 가져오기
       </button>
-      <button type="button" class="btn btn-ghost small" id="btn-paste">
+      <button type="button" class="btn btn-ghost small" data-import="paste">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6v3H9zM7 5H5v15h14V5h-2"/></svg>
         붙여넣기
       </button>
-      <input type="file" id="shot-file" accept="image/*" multiple hidden />
     </div>
     <div id="tx-groups"></div>
   </section>
@@ -285,6 +297,7 @@
     <div class="modal-head">
       <h3 class="jua" id="tx-modal-title">내역 추가</h3>
       <div class="modal-acts">
+        <button type="button" class="btn btn-danger" id="btn-tx-delete" hidden>삭제</button>
         <button type="button" class="btn" data-close>취소</button>
         <button type="submit" class="btn btn-primary" id="btn-tx-save">저장</button>
       </div>
@@ -324,9 +337,6 @@
       <div class="chip-picker" id="tx-categories"></div>
     </div>
 
-    <div class="row" style="justify-content: flex-start; margin-top: 6px">
-      <button type="button" class="btn btn-danger" id="btn-tx-delete" hidden>삭제</button>
-    </div>
     </div>
   </form>
 </dialog>
@@ -352,6 +362,8 @@
     <div class="modal-body"><div id="group-pick-list" class="chip-picker"></div></div>
   </div>
 </dialog>
+
+<input type="file" id="shot-file" accept="image/*" multiple hidden />
 
 <!-- ───────── 사진에서 가져오기 ───────── -->
 <dialog id="dlg-shot">
@@ -409,7 +421,7 @@
 </dialog>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="config.js?v=20260902h"></script>
-<script src="app.js?v=20260902h"></script>
+<script src="config.js?v=20260902i"></script>
+<script src="app.js?v=20260902i"></script>
 </body>
 </html>

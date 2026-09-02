@@ -1247,6 +1247,7 @@ function txKey_(date, kind, amount, memo) {
 function updateTransaction(payload) {
   payload = payload || {};
   var id = checkText_(payload.id, '내역', 40);
+  var email = currentEmail_();
 
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);

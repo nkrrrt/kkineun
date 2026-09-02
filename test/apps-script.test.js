@@ -278,6 +278,26 @@ test('이미 지워진 내역을 또 지우면 안내 메시지가 나온다', (
   assert.throws(() => gas.call('updateTransaction', { id: tx.id, amount: 100 }), /방금 지웠을 수 있어요/);
 });
 
+test('화면에서 작성자를 함께 보내도 수정이 된다', () => {
+  const gas = seeded();
+  const 치과 = gas.call('getMonthData', '2026-08').transactions.find((t) => t.memo === '치과');
+  assert.equal(치과.userName, '수호');
+
+  // 화면의 '누가?' 칸은 늘 채워져 있어서 userEmail 이 같이 넘어온다
+  const 그대로 = gas.call('updateTransaction', { id: 치과.id, amount: 55000, userEmail: 수호 });
+  assert.equal(그대로.transactions.find((t) => t.id === 치과.id).userName, '수호');
+
+  // 작성자를 나로 바꾸기
+  const 바꿈 = gas.call('updateTransaction', { id: 치과.id, userEmail: 지민 });
+  assert.equal(바꿈.transactions.find((t) => t.id === 치과.id).userName, '지민');
+
+  // 함께 쓰지 않는 사람은 작성자가 될 수 없다
+  assert.throws(
+    () => gas.call('updateTransaction', { id: 치과.id, userEmail: 'stranger@example.com' }),
+    /함께 쓰는 사람만/,
+  );
+});
+
 test('날짜를 다른 달로 바꾸면 그 달로 옮겨간다', () => {
   const gas = seeded();
   const tx = gas.call('getMonthData', '2026-08').transactions.find((t) => t.memo === '헬스장');

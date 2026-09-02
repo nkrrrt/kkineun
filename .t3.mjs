@@ -1,0 +1,14 @@
+import { createWorker } from 'tesseract.js';
+import { Jimp } from 'jimp';
+const SRC='/root/.claude/uploads/3c11448c-47d0-5f14-8cda-d8ca76d77f8c/9b0cb027-image.png';
+const LANG='/tmp/claude-0/-home-user--/3c11448c-47d0-5f14-8cda-d8ca76d77f8c/scratchpad/lang';
+const OUT='/tmp/claude-0/-home-user--/3c11448c-47d0-5f14-8cda-d8ca76d77f8c/scratchpad/c15.png';
+const im = await Jimp.read(SRC);
+console.log('크기:', im.width, 'x', im.height);
+await im.greyscale().scale(1.5).write(OUT);
+const w = await createWorker('kor+eng', 1, { langPath: LANG, logger: () => {} });
+const { data } = await w.recognize(OUT);
+await w.terminate();
+console.log('확신도:', data.confidence.toFixed(1));
+console.log('=== 인식 결과 ===');
+console.log(data.text);

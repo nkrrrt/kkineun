@@ -276,7 +276,7 @@ function signed(n) {
 
 function shortNum(n) {
   n = Math.abs(Number(n || 0));
-  if (n >= 10000000) return Math.round(n / 1000000) / 10 + '천만';
+  if (n >= 1000000) return Math.round(n / 1000000) / 10 + '천만';
   if (n >= 10000) return Math.round(n / 1000) / 10 + '만';
   if (n >= 1000) return Math.round(n / 100) / 10 + '천';
   return String(n);
@@ -818,6 +818,19 @@ function parseBankText(text, baseYear) {
   }
 
   lines.forEach(function (line) {
+    if (isNoise(line)) return;
+
+    // 26. 8. 30 (일) — 연도가 앞에 붙는 형식
+    var ymd = line.match(/^\D{0,3}(\d{2,4})\s*[.\-/]\s*(\d{1,2})\s*[.\-/]\s*(\d{1,2})\b/);
+    if (ymd) {
+      flush();
+      year = Number(ymd[1]) < 100 ? 2000 + Number(ymd[1]) : Number(ymd[1]);
+      month = Number(ymd[2]);
+      day = Number(ymd[3]);
+      before = { month: month, day: day };
+      return;
+    }
+
     var d = line.match(/^\D{0,3}(\d{1,2})\s*월\s*(\d{1,3})\s*\S{0,2}$/);
     if (d) {
       // 날짜가 바뀌기 전에 읽던 것을 먼저 마무리한다. 시각의 콜론이 인식되지
@@ -837,9 +850,14 @@ function parseBankText(text, baseYear) {
       if (hasMoney(buffer)) flush();
       return;
     }
-    // 부호 붙은 금액이 또 나오면 다음 건이 시작된 것이다. 시각이 없는 형태에서도
-    // 나뉜다. 잔액에는 부호가 없으므로 잔액 때문에 쪼개지지 않는다.
-    if (hasSigned([line]) && hasSigned(buffer)) flush();
+    // 이름과 금액이 함께 있는 줄이면 다음 건이 시작된 것이다. 카드 명세서처럼
+    // 시각도 부호도 없는 형태에서도 나뉜다.
+    //
+    // 다만 이미 부호 붙은 금액을 본 뒤라면, 뒤따르는 부호 없는 금액은 잔액이다.
+    // (…-820원 / 어느페이 302,765원 — 뒷줄은 새 건이 아니라 이름의 나머지다)
+    // 카드 명세서에는 부호가 아예 없으므로 이 예외에 걸리지 않는다.
+    var 잔액인듯 = hasSigned(buffer) && !hasSigned([line]);
+    if (hasMoney([line]) && hasName(line) && hasMoney(buffer) && !잔액인듯) flush();
     buffer.push(line);
   });
   flush();
@@ -857,7 +875,7 @@ function parseBankText(text, baseYear) {
  *   1) 천 단위 쉼표가 있다 (2,350)
  *   2) 뒤에 원 비슷한 글자가 붙었다 (450원)
  *   3) 앞에 부호가 있다 (-450)
- * 그냥 숫자 뭉치(AB12 의 25, 깨진 시각 1133)는 금액으로 보지 않는다.
+ * 그냥 숫자 뭉치(상호 속 숫자, 깨진 시각 1133)는 금액으로 보지 않는다.
  */
 function moneyIn(line) {
   var re = /([+\-\u2212])?\s*(\d{1,3}(?:[,\s]\d{3})+|\d{1,9})\s*([원웜월])?/g;
@@ -892,10 +910,35 @@ function hasSigned(lines) {
 }
 
 /**
+ * 내역이 아닌 줄. 카드 명세서에는 한 건마다 딸린 설명과 화면 안내가 섞여 있다.
+ *
+ *   일시불 ㆍ어느카드 300      ← 결제 방식
+ *   적립 예정 20(0.1%)             ← 포인트
+ *   이용 금액 891,000원            ← 할부 총액. 금액이 있어 특히 위험하다
+ *   결제 후 잔액 · 594,000원       ← 잔액
+ *   최근순 고액순 / 인쇄하기       ← 화면 버튼
+ *
+ * 이런 줄을 내역으로 세면 없는 지출이 생기고, 이름에 붙으면 지저분해진다.
+ */
+function isNoise(line) {
+  // 결제 방식 줄은 '일시불'이 LAE 처럼 깨지기도 한다. 가운뎃점 뒤에 카드가 오는
+  // 모양은 그대로라, 글자가 깨져도 그 모양으로 알아본다.
+  if (/[ㆍ·][^\n]{0,12}카드/.test(line)) return true;
+  return /(적립|이용\s*금액|이용\s*내역|잔액|명세서|할부|일시불|분할결제|신청하기|최근순|고액순|인쇄|이미지로|저장|안내|맨\s*위|위로|상세\s*정보|자세히|소비\s*관리)/.test(line);
+}
+
+/** 금액을 빼고 남는 글자가 이름 노릇을 할 만한가. 잔액 줄에는 이름이 없다. */
+function hasName(line) {
+  var rest = line;
+  moneyIn(line).forEach(function (m) { rest = rest.split(m.text).join(' '); });
+  return tidyName(rest).replace(/[^\uAC00-\uD7A3\u3131-\u318E0-9A-Za-z]/g, '').length >= 2;
+}
+
+/**
  * 가게 이름 앞에 붙은 아이콘 찌꺼기를 걷어낸다.
  *
  * 이름 왼쪽의 동그란 아이콘을 글자로 잘못 읽어 이런 것이 앞에 붙는다.
- *   ~ AB12…  /  Ky 카드 캐시백  /  il 회비  /  oO 한전(홍길동)  /  2, 씨유…
+ *   ~ AB12…  /  Ky 카드 캐시백  /  il 회비  /  oO 한전(홍길동)  /  2, 어느편의점…
  *
  * 짧고 한글이 없는 토막이 맨 앞에 홀로 있으면 아이콘으로 본다. 다만 SK·GS·CU
  * 처럼 모두 대문자인 것은 진짜 상호일 수 있어 남긴다.

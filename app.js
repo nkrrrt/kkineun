@@ -828,12 +828,37 @@ function parseBankText(text, baseYear) {
       return;
     }
     // 시각으로 한 건이 끝난다. 앞에 아이콘이 글자로 섞여 들어오기도 한다.
-    if (/^[^\d]{0,4}\d{1,2}\s*:\s*\d{2}/.test(line)) { flush(); return; }
+    // 다만 아직 금액을 못 본 상태의 시각은 그냥 버린다. 붙여넣은 글자에서는
+    // 시각이 금액보다 먼저 오기도 하는데, 그때 끝맺어 버리면 한 건이 통째로 사라진다.
+    if (/^[^\d]{0,4}\d{1,2}\s*:\s*\d{2}/.test(line)) {
+      if (hasMoney(buffer)) flush();
+      return;
+    }
+    // 부호 붙은 금액이 또 나오면 다음 건이 시작된 것이다. 시각이 없는 형태에서도
+    // 나뉜다. 잔액에는 부호가 없으므로 잔액 때문에 쪼개지지 않는다.
+    if (hasSigned([line]) && hasSigned(buffer)) flush();
     buffer.push(line);
   });
   flush();
 
   return out;
+}
+
+/** 이 줄들 안에 금액으로 볼 만한 것이 있는가. */
+function hasMoney(lines) {
+  return lines.some(function (l) { return /\d[\d,\s]{0,13}\s*[원웜월]/.test(l); });
+}
+
+/**
+ * 부호가 붙은 금액이 있는가. 이것이 '한 건'의 표시다.
+ *
+ * 부호는 금액에서 멀리 떨어져 인식되기도 해서(-820원이 '- ... 0 820원'으로)
+ * 줄 전체에 부호가 있는지로 본다. 잔액에는 부호가 없다.
+ */
+function hasSigned(lines) {
+  return lines.some(function (l) {
+    return /[-\u2212+]/.test(l) && /\d[\d,\s]{0,13}\s*[원웜월]/.test(l);
+  });
 }
 
 /** 한 건에서 금액·이름을 뽑는다. 못 뽑으면 null. */
@@ -1022,18 +1047,33 @@ function startShots(files) {
   })
     .then(function (rows) {
       $('#shot-progress').hidden = true;
-      shot.rows = rows.map(function (r) {
-        return { date: r.date, kind: r.kind, amount: r.amount, memo: r.memo, categoryId: '', use: true };
-      });
-      if (!shot.rows.length) { $('#shot-empty').hidden = false; return; }
-      $('#shot-title').textContent = rows.length + '건을 찾았어요';
-      renderShotRows();
-      $('#btn-shot-save').hidden = false;
+      showFound(rows);
     })
     ['catch'](function (err) {
       $('#shot-progress').hidden = true;
       showError($('#shot-error'), err.message);
     });
+}
+
+/**
+ * 찾은 내역을 확인 화면에 올린다.
+ *
+ * 사진에서 읽었든 글자를 붙여넣었든 여기서 만난다. 뽑아내는 방법만 다르고
+ * 고치고 넣는 과정은 같다.
+ */
+function showFound(rows) {
+  shot.rows = rows.map(function (r) {
+    return { date: r.date, kind: r.kind, amount: r.amount, memo: r.memo, categoryId: '', use: true };
+  });
+  if (!shot.rows.length) {
+    $('#shot-title').textContent = '가져오기';
+    $('#shot-empty').hidden = false;
+    $('#btn-shot-save').hidden = true;
+    return;
+  }
+  $('#shot-title').textContent = rows.length + '건을 찾았어요';
+  renderShotRows();
+  $('#btn-shot-save').hidden = false;
 }
 
 /** 찾은 내역을 고칠 수 있게 늘어놓는다. 이름은 인식이 틀릴 수 있다. */
@@ -1115,6 +1155,34 @@ function saveShots() {
 }
 
 var dlgShot = $('#dlg-shot');
+var dlgPaste = $('#dlg-paste');
+
+$('#btn-paste').addEventListener('click', function () {
+  $('#paste-text').value = '';
+  $('#paste-error').hidden = true;
+  dlgPaste.showModal();
+});
+
+$('#form-paste').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var text = $('#paste-text').value;
+  if (!text.trim()) { showError($('#paste-error'), '붙여넣은 글자가 없어요.'); return; }
+
+  var rows = parseBankText(text, state.month ? Number(state.month.slice(0, 4)) : 0);
+  if (!rows.length) {
+    showError($('#paste-error'), '내역을 찾지 못했어요. 날짜와 금액이 함께 들어 있는지 봐주세요.');
+    return;
+  }
+
+  dlgPaste.close();
+  $('#shot-error').hidden = true;
+  $('#shot-empty').hidden = true;
+  $('#shot-progress').hidden = true;
+  $('#shot-rows').innerHTML = '';
+  showFound(rows);
+  dlgShot.showModal();
+});
+
 $('#btn-shot').addEventListener('click', openShotPicker);
 $('#shot-file').addEventListener('change', function (e) {
   var files = Array.prototype.slice.call(e.target.files || []);

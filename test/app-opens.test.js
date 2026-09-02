@@ -622,3 +622,61 @@ test('사진에서 찾은 내역을 고쳐서 넣는다', { skip }, async () => 
   assert.equal(넣은것.length, 2, '뺀 줄까지 들어갔습니다');
   assert.ok(넣은것.some((r) => String(r[5]).indexOf('가나시장상인회') >= 0), '고친 이름이 안 들어갔습니다');
 });
+
+test('글자를 붙여넣어도 같은 확인 화면으로 간다', { skip }, async () => {
+  const { doc, win, gas } = openApp();
+  await wait();
+  patchDom(doc);
+
+  doc.getElementById('btn-paste').click();
+  doc.getElementById('paste-text').value = 토스화면;
+  doc.getElementById('form-paste').dispatchEvent(new win.Event('submit', { cancelable: true }));
+  await wait(150);
+
+  assert.equal(doc.getElementById('dlg-paste').hasAttribute('open'), false, '붙여넣기 창이 안 닫혔습니다');
+  assert.equal(doc.querySelectorAll('.shot-row').length, 3, '확인 화면에 3건이 안 나옵니다');
+  assert.equal(doc.getElementById('btn-shot-save').textContent, '3건 넣기');
+
+  doc.getElementById('btn-shot-save').click();
+  await wait();
+  assert.equal(gas.dump('내역').slice(1).length, 3, '넣기가 안 됐습니다');
+});
+
+test('시각이 금액보다 먼저 와도 놓치지 않는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 앱에서 복사하면 줄 순서가 화면과 다를 수 있다
+  const 붙여넣은글 = `9월 1일
+스타벅스
+09:12
+-5,600원
+300,000원
+편의점
+10:30
+-3,200원
+296,800원`;
+
+  const rows = win.parseBankText(붙여넣은글, 2026);
+  const 금액 = JSON.parse(JSON.stringify(rows.map((r) => r.amount)));
+  assert.deepEqual(금액, [5600, 3200], '금액을 놓쳤습니다: ' + JSON.stringify(rows));
+});
+
+test('붙여넣은 글자가 비었거나 내역이 없으면 알려준다', { skip }, async () => {
+  const { doc, win } = openApp();
+  await wait();
+  patchDom(doc);
+
+  doc.getElementById('btn-paste').click();
+  const 보내기 = () => doc.getElementById('form-paste')
+    .dispatchEvent(new win.Event('submit', { cancelable: true }));
+
+  doc.getElementById('paste-text').value = '';
+  보내기();
+  assert.equal(doc.getElementById('paste-error').hidden, false, '빈 것을 안 막았습니다');
+
+  doc.getElementById('paste-text').value = '안녕하세요 오늘 날씨가 좋네요';
+  보내기();
+  assert.match(doc.getElementById('paste-error').textContent, /찾지 못했어요/);
+  assert.equal(doc.getElementById('dlg-shot').hasAttribute('open'), false, '빈 확인 화면이 떴습니다');
+});

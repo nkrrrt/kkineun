@@ -583,3 +583,42 @@ test('연도가 없는 화면에서 앞날로 읽지 않는다', { skip }, async
   일주일뒤.setDate(일주일뒤.getDate() + 7);
   assert.ok(rows[0].date <= 일주일뒤.toISOString().slice(0, 10), '앞날로 읽었습니다: ' + rows[0].date);
 });
+
+test('사진에서 찾은 내역을 고쳐서 넣는다', { skip }, async () => {
+  const { doc, win, gas, calls } = openApp();
+  await wait();
+  patchDom(doc);
+
+  // 글자 읽기까지 흉내 내긴 어려우니, 읽어낸 결과가 나온 상태부터 확인한다
+  win.shot = { rows: win.parseBankText(토스화면, 2026).map((r) => ({ ...r, categoryId: '', use: true })) };
+  win.renderShotRows();
+
+  const rows = [...doc.querySelectorAll('.shot-row')];
+  assert.equal(rows.length, 3, '찾은 내역이 안 그려집니다');
+  assert.equal(doc.getElementById('btn-shot-save').textContent, '3건 넣기');
+
+  // 이름을 고칠 수 있어야 한다 (글자 인식이 자주 틀리는 부분)
+  const memo = rows[0].querySelector('.shot-memo');
+  memo.value = '가나시장상인회';
+  memo.dispatchEvent(new win.Event('input'));
+  assert.equal(win.shot.rows[0].memo, '가나시장상인회');
+
+  // 빼고 싶은 줄은 뺄 수 있어야 한다
+  const 체크 = rows[2].querySelector('.shot-use input');
+  체크.checked = false;
+  체크.dispatchEvent(new win.Event('change'));
+  assert.equal(doc.getElementById('btn-shot-save').textContent, '2건 넣기');
+
+  // 지출↔수입을 뒤집을 수 있어야 한다 (부호를 잘못 읽었을 때)
+  rows[1].querySelector('.shot-kind').click();
+  assert.equal(win.shot.rows[1].kind, 'income');
+
+  calls.length = 0;
+  doc.getElementById('btn-shot-save').click();
+  await wait();
+
+  assert.ok(calls.includes('importTransactions'), '넣기를 안 불렀습니다');
+  const 넣은것 = gas.dump('내역').slice(1);
+  assert.equal(넣은것.length, 2, '뺀 줄까지 들어갔습니다');
+  assert.ok(넣은것.some((r) => String(r[5]).indexOf('가나시장상인회') >= 0), '고친 이름이 안 들어갔습니다');
+});

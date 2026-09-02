@@ -270,6 +270,28 @@ button { cursor: pointer; }
 .cycle-tie { flex: 0 0 auto; padding-bottom: 11px; font-weight: 700; color: var(--muted); }
 .warn-text { color: var(--expense); }
 
+/* ── 사진에서 찾은 내역 고치기 ── */
+#shot-rows { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; overflow-y: auto; margin-top: 4px; }
+.shot-row { display: flex; align-items: flex-start; gap: 9px; padding: 9px 10px;
+  background: var(--surface-2); border: 2px solid var(--line); border-radius: 13px; }
+.shot-row.off { opacity: 0.45; }
+.shot-use { flex: 0 0 auto; padding-top: 6px; }
+.shot-use input { width: 19px; height: 19px; accent-color: var(--lilac); }
+.shot-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.shot-top { display: flex; align-items: center; gap: 8px; }
+.shot-memo { flex: 1 1 auto; min-width: 0; font: inherit; font-weight: 600; font-size: 14px;
+  background: var(--surface); color: var(--ink);
+  border: 2px solid var(--line); border-radius: 9px; padding: 5px 8px; }
+.shot-memo:focus { outline: none; border-color: var(--edge); }
+.shot-amt { flex: 0 0 auto; font-weight: 700; font-size: 14px; font-variant-numeric: tabular-nums; }
+.shot-bot { display: flex; align-items: center; gap: 7px; }
+.shot-kind { flex: 0 0 auto; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+  background: var(--surface); color: var(--ink);
+  border: 2px solid var(--edge); border-radius: 999px; padding: 2px 11px; }
+.shot-cat { flex: 1 1 auto; min-width: 0; font: inherit; font-size: 12.5px; font-weight: 600;
+  background: var(--surface); color: var(--ink);
+  border: 2px solid var(--line); border-radius: 9px; padding: 4px 6px; }
+
 .help-box { background: var(--surface-2); border: 2px solid var(--line); border-radius: 14px;
   padding: 10px 12px; font-size: 12.5px; line-height: 1.7; margin: 10px 0; }
 .help-box ol { margin: 5px 0 0; padding-left: 17px; }

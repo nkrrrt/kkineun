@@ -899,6 +899,230 @@ function isoFrom(year, month, day) {
 function pad2(n) { return (n < 10 ? '0' : '') + n; }
 
 /* ------------------------------------------------------------------ */
+/* 사진에서 가져오기                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 글자 읽는 프로그램은 무거워서(4.5MB 남짓) 앱을 켤 때 받지 않는다.
+ * 이 기능을 처음 누를 때만 받고, 그 뒤로는 폰에 남아 다시 받지 않는다.
+ */
+var OCR_SRC = 'https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js';
+var ocr = { loading: null, worker: null };
+
+function loadOcr() {
+  if (window.Tesseract) return Promise.resolve();
+  if (ocr.loading) return ocr.loading;
+
+  ocr.loading = new Promise(function (resolve, reject) {
+    var tag = document.createElement('script');
+    tag.src = OCR_SRC;
+    tag.onload = resolve;
+    tag.onerror = function () { reject(new Error('글자 읽는 프로그램을 받지 못했어요. 인터넷을 확인해 주세요.')); };
+    document.head.appendChild(tag);
+  });
+  return ocr.loading;
+}
+
+/**
+ * 사진을 글자 읽기 좋게 다듬는다.
+ *
+ * 실제로 여러 설정을 견줘봤다. 1.5배로 키우고 흑백으로 바꾼 것이 가장 나았다.
+ * 2배·3배는 이름은 더 잘 읽지만 금액을 놓치는 일이 생긴다 — 이름은 고치면
+ * 되지만 금액을 놓치면 내역이 통째로 사라지므로 더 나쁘다.
+ */
+function prepShot(file) {
+  return new Promise(function (resolve, reject) {
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function () {
+      var scale = 1.5;
+      var cv = document.createElement('canvas');
+      cv.width = Math.round(img.naturalWidth * scale);
+      cv.height = Math.round(img.naturalHeight * scale);
+
+      var ctx = cv.getContext('2d');
+      ctx.drawImage(img, 0, 0, cv.width, cv.height);
+      var px = ctx.getImageData(0, 0, cv.width, cv.height);
+      for (var i = 0; i < px.data.length; i += 4) {
+        var g = (px.data[i] * 0.299 + px.data[i + 1] * 0.587 + px.data[i + 2] * 0.114) | 0;
+        px.data[i] = px.data[i + 1] = px.data[i + 2] = g;
+      }
+      ctx.putImageData(px, 0, 0);
+
+      URL.revokeObjectURL(url);
+      resolve(cv);
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('사진을 열지 못했어요.')); };
+    img.src = url;
+  });
+}
+
+/** 사진 여러 장을 차례로 읽어 내역 목록을 만든다. */
+function readShots(files, onStep) {
+  var found = [];
+  var seen = {};
+
+  return loadOcr()
+    .then(function () {
+      if (!ocr.worker) {
+        onStep('글자 읽는 준비를 하고 있어요…', 0);
+        return Tesseract.createWorker('kor+eng').then(function (w) { ocr.worker = w; });
+      }
+    })
+    .then(function () {
+      var chain = Promise.resolve();
+      files.forEach(function (file, i) {
+        chain = chain.then(function () {
+          onStep((i + 1) + ' / ' + files.length + '장째 읽는 중…', i / files.length);
+          return prepShot(file)
+            .then(function (canvas) { return ocr.worker.recognize(canvas); })
+            .then(function (res) {
+              parseBankText(res.data.text, state.month ? Number(state.month.slice(0, 4)) : 0)
+                .forEach(function (row) {
+                  // 화면을 겹쳐 찍었을 때 같은 건이 두 번 들어오지 않게
+                  var key = [row.date, row.kind, row.amount, row.memo].join('|');
+                  if (seen[key]) return;
+                  seen[key] = true;
+                  found.push(row);
+                });
+            });
+        });
+      });
+      return chain;
+    })
+    .then(function () {
+      onStep('다 읽었어요', 1);
+      found.sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
+      return found;
+    });
+}
+
+/* ── 확인 화면 ── */
+
+var shot = { rows: [] };
+
+function openShotPicker() {
+  $('#shot-file').value = '';
+  $('#shot-file').click();
+}
+
+function startShots(files) {
+  shot.rows = [];
+  $('#shot-error').hidden = true;
+  $('#shot-empty').hidden = true;
+  $('#shot-rows').innerHTML = '';
+  $('#btn-shot-save').hidden = true;
+  $('#shot-progress').hidden = false;
+  $('#shot-title').textContent = '사진에서 가져오기';
+  dlgShot.showModal();
+
+  readShots(files, function (text, ratio) {
+    $('#shot-step').textContent = text;
+    $('#shot-bar').style.width = Math.round(ratio * 100) + '%';
+  })
+    .then(function (rows) {
+      $('#shot-progress').hidden = true;
+      shot.rows = rows.map(function (r) {
+        return { date: r.date, kind: r.kind, amount: r.amount, memo: r.memo, categoryId: '', use: true };
+      });
+      if (!shot.rows.length) { $('#shot-empty').hidden = false; return; }
+      $('#shot-title').textContent = rows.length + '건을 찾았어요';
+      renderShotRows();
+      $('#btn-shot-save').hidden = false;
+    })
+    ['catch'](function (err) {
+      $('#shot-progress').hidden = true;
+      showError($('#shot-error'), err.message);
+    });
+}
+
+/** 찾은 내역을 고칠 수 있게 늘어놓는다. 이름은 인식이 틀릴 수 있다. */
+function renderShotRows() {
+  var box = $('#shot-rows');
+  box.innerHTML = '';
+
+  shot.rows.forEach(function (row, i) {
+    var card = document.createElement('div');
+    card.className = 'shot-row' + (row.use ? '' : ' off');
+
+    var cats = state.categories.filter(function (c) { return c.kind === row.kind && c.isActive; });
+    var options = ['<option value="">카테고리 없이</option>'].concat(cats.map(function (c) {
+      return '<option value="' + escapeAttr(c.id) + '"' +
+        (c.id === row.categoryId ? ' selected' : '') + '>' + escapeHtml(c.name) + '</option>';
+    })).join('');
+
+    card.innerHTML =
+      '<label class="shot-use"><input type="checkbox"' + (row.use ? ' checked' : '') + ' /></label>' +
+      '<div class="shot-body">' +
+        '<div class="shot-top">' +
+          '<input class="shot-memo" value="' + escapeAttr(row.memo) + '" placeholder="내용" maxlength="60" />' +
+          '<span class="shot-amt ' + (row.kind === 'income' ? 'income-text' : 'expense-text') + '">' +
+            (row.kind === 'income' ? '+' : '−') + num(row.amount) + '</span>' +
+        '</div>' +
+        '<div class="shot-bot">' +
+          '<span class="small muted">' + escapeHtml(row.date.slice(5).replace('-', '.')) + '</span>' +
+          '<button type="button" class="shot-kind">' + (row.kind === 'income' ? '수입' : '지출') + '</button>' +
+          '<select class="shot-cat">' + options + '</select>' +
+        '</div>' +
+      '</div>';
+
+    card.querySelector('.shot-use input').addEventListener('change', function (e) {
+      row.use = e.target.checked;
+      card.classList.toggle('off', !row.use);
+      updateShotCount();
+    });
+    card.querySelector('.shot-memo').addEventListener('input', function (e) { row.memo = e.target.value; });
+    card.querySelector('.shot-cat').addEventListener('change', function (e) { row.categoryId = e.target.value; });
+    card.querySelector('.shot-kind').addEventListener('click', function () {
+      row.kind = row.kind === 'income' ? 'expense' : 'income';
+      row.categoryId = '';       // 구분이 바뀌면 카테고리도 다시 골라야 한다
+      renderShotRows();
+    });
+
+    box.appendChild(card);
+  });
+  updateShotCount();
+}
+
+function updateShotCount() {
+  var n = shot.rows.filter(function (r) { return r.use; }).length;
+  $('#btn-shot-save').textContent = n + '건 넣기';
+  $('#btn-shot-save').disabled = n === 0;
+}
+
+function saveShots() {
+  var rows = shot.rows.filter(function (r) { return r.use; }).map(function (r) {
+    return { date: r.date, kind: r.kind, amount: r.amount, memo: r.memo, categoryId: r.categoryId };
+  });
+  if (!rows.length) return;
+
+  var btn = $('#btn-shot-save');
+  btn.disabled = true;
+  showError($('#shot-error'), '');
+
+  withBusy(call('importTransactions', { rows: rows, month: state.month }))
+    .then(function (out) {
+      forgetMonths();
+      apply(out.data);
+      monthSeen[state.month] = out.data;
+      dlgShot.close();
+      toast(out.skipped
+        ? out.added + '건 넣었어요 (이미 있던 ' + out.skipped + '건은 건너뜀)'
+        : out.added + '건 넣었어요');
+    })
+    ['catch'](function (err) { showError($('#shot-error'), err.message); })
+    .then(function () { btn.disabled = false; });
+}
+
+var dlgShot = $('#dlg-shot');
+$('#btn-shot').addEventListener('click', openShotPicker);
+$('#shot-file').addEventListener('change', function (e) {
+  var files = Array.prototype.slice.call(e.target.files || []);
+  if (files.length) startShots(files);
+});
+$('#btn-shot-save').addEventListener('click', saveShots);
+
+/* ------------------------------------------------------------------ */
 /* 화면 테마                                                            */
 /* ------------------------------------------------------------------ */
 

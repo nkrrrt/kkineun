@@ -35,7 +35,7 @@
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <link rel="stylesheet" href="styles.css?v=20260902c" />
+  <link rel="stylesheet" href="styles.css?v=20260902d" />
 </head>
 <body>
 
@@ -125,6 +125,13 @@
 
   <!-- ───────── 내역 ───────── -->
   <section id="screen-list" class="screen" hidden>
+    <div class="row" style="justify-content: flex-end; margin: 6px 0 10px">
+      <button type="button" class="btn btn-ghost small" id="btn-shot">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.2"/></svg>
+        사진에서 가져오기
+      </button>
+      <input type="file" id="shot-file" accept="image/*" multiple hidden />
+    </div>
     <div id="tx-groups"></div>
   </section>
 
@@ -335,8 +342,37 @@
   </div>
 </dialog>
 
+<!-- ───────── 사진에서 가져오기 ───────── -->
+<dialog id="dlg-shot">
+  <div class="modal card">
+    <h3 class="jua" id="shot-title">사진에서 가져오기</h3>
+    <div id="shot-error" class="error-box" hidden></div>
+
+    <div id="shot-progress" class="help-box" hidden>
+      <b id="shot-step">사진을 읽고 있어요…</b>
+      <div class="bar-track" style="margin-top: 8px">
+        <div class="bar-fill" id="shot-bar" style="width: 0%; background: var(--lilac)"></div>
+      </div>
+      <div class="small muted" style="margin-top: 6px" id="shot-note">
+        처음 한 번은 글자 읽는 데이터를 받느라 시간이 좀 걸려요.
+      </div>
+    </div>
+
+    <div id="shot-empty" class="help-box" hidden>
+      내역을 찾지 못했어요. 날짜와 금액이 함께 보이도록 다시 찍어 주세요.
+    </div>
+
+    <div id="shot-rows"></div>
+
+    <div class="row" style="justify-content: flex-end; margin-top: 10px">
+      <button type="button" class="btn" data-close>닫기</button>
+      <button type="button" class="btn btn-primary" id="btn-shot-save" hidden>넣기</button>
+    </div>
+  </div>
+</dialog>
+
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="config.js?v=20260902c"></script>
-<script src="app.js?v=20260902c"></script>
+<script src="config.js?v=20260902d"></script>
+<script src="app.js?v=20260902d"></script>
 </body>
 </html>

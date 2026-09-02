@@ -891,6 +891,75 @@ function hasSigned(lines) {
   });
 }
 
+/**
+ * 가게 이름 앞에 붙은 아이콘 찌꺼기를 걷어낸다.
+ *
+ * 이름 왼쪽의 동그란 아이콘을 글자로 잘못 읽어 이런 것이 앞에 붙는다.
+ *   ~ AB12…  /  Ky 카드 캐시백  /  il 회비  /  oO 한전(홍길동)  /  2, 씨유…
+ *
+ * 짧고 한글이 없는 토막이 맨 앞에 홀로 있으면 아이콘으로 본다. 다만 SK·GS·CU
+ * 처럼 모두 대문자인 것은 진짜 상호일 수 있어 남긴다.
+ */
+function tidyName(text) {
+  var v = String(text || '').replace(/\s+/g, ' ').trim();
+
+  for (var i = 0; i < 2; i++) {
+    var m = v.match(/^(\S{1,2})\s+(\S.*)$/);
+    if (!m) break;
+    var head = m[1];
+    var 한글있음 = /[\uAC00-\uD7A3\u3131-\u318E]/.test(head);
+    var 모두대문자 = /^[A-Z]{2}$/.test(head);
+    if (한글있음 || 모두대문자) break;
+    v = m[2];
+  }
+
+  return v
+    .replace(/^[^\uAC00-\uD7A3\u3131-\u318E0-9A-Za-z(]+/, '')
+    .replace(/[^\uAC00-\uD7A3\u3131-\u318E0-9A-Za-z)\]]+$/, '')
+    .trim();
+}
+
+/**
+ * 한 번 고쳐준 이름을 기억해 두고 다음부터 알아서 바꾼다.
+ *
+ * 글자 인식은 같은 가게도 찍을 때마다 다르게 틀린다(AB12%w CDE / AB12&t CDE /
+ * AB12ttuCDE). 그래서 앞부분 몇 글자만 열쇠로 삼는다. 한 번 고쳐주면 그 가게는
+ * 다음부터 제대로 나온다. 자주 가는 곳일수록 금방 편해진다.
+ */
+var NAME_KEY = 'names';
+
+function nameKey(text) {
+  var v = String(text || '').toLowerCase()
+    .replace(/[^\uAC00-\uD7A3\u3131-\u318E0-9a-z]/g, '');
+  return v.slice(0, 4);
+}
+
+function knownNames() {
+  try {
+    return JSON.parse(localStorage.getItem(NAME_KEY) || '{}') || {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function rememberName(garbled, fixed) {
+  var key = nameKey(garbled);
+  if (!key || !fixed || garbled === fixed) return;
+  try {
+    var all = knownNames();
+    all[key] = String(fixed).slice(0, 60);
+    localStorage.setItem(NAME_KEY, JSON.stringify(all));
+  } catch (e) {
+    // 못 기억해도 이번 건에는 지장 없다
+  }
+}
+
+function recallName(text) {
+  var all = knownNames();
+  var key = nameKey(text);
+  return (key && all[key]) || text;
+}
+
 /** 한 건에서 금액·이름을 뽑는다. 못 뽑으면 null. */
 function buildRow(buffer, year, month, day) {
   if (!buffer.length || !month || !day) return null;
@@ -917,23 +986,20 @@ function buildRow(buffer, year, month, day) {
       rest = rest.split(found.text).join(' ');
     });
 
-    // 아이콘이 글자로 섞여 들어온 것과 잡부호를 앞뒤에서 걷어낸다
-    rest = rest
-      .replace(/^[^\uAC00-\uD7A3\u3131-\u318E0-9A-Za-z]+/, '')
-      .replace(/[^\uAC00-\uD7A3\u3131-\u318E0-9A-Za-z)\]]+$/, '')
-      .replace(/\s+/g, ' ')
-      .trim();
+    rest = tidyName(rest);
     // 시각의 콜론이 날아가 '1133' 같은 숫자만 남은 줄은 이름이 아니다
     if (rest.length > 1 && !/^\d{3,4}$/.test(rest)) cleaned.push(rest);
   });
 
   if (!picked) return null;
 
+  var name = cleaned.join(' ').slice(0, 60);
   return {
     date: isoFrom(year, month, day),
     kind: picked.income ? 'income' : 'expense',
     amount: picked.value,
-    memo: cleaned.join(' ').slice(0, 60)
+    memo: recallName(name),     // 전에 고쳐준 적 있으면 그 이름으로
+    raw: name
   };
 }
 
@@ -1113,7 +1179,10 @@ function startShots(files) {
  */
 function showFound(rows) {
   shot.rows = rows.map(function (r) {
-    return { date: r.date, kind: r.kind, amount: r.amount, memo: r.memo, categoryId: '', use: true };
+    return {
+      date: r.date, kind: r.kind, amount: r.amount, memo: r.memo,
+      raw: r.raw || r.memo, categoryId: '', use: true
+    };
   });
   if (!shot.rows.length) {
     $('#shot-title').textContent = '가져오기';
@@ -1181,7 +1250,11 @@ function updateShotCount() {
 }
 
 function saveShots() {
-  var rows = shot.rows.filter(function (r) { return r.use; }).map(function (r) {
+  var use = shot.rows.filter(function (r) { return r.use; });
+  // 고쳐준 이름은 기억해 뒀다가 다음에 같은 가게가 나오면 알아서 바꾼다
+  use.forEach(function (r) { rememberName(r.raw, r.memo); });
+
+  var rows = use.map(function (r) {
     return { date: r.date, kind: r.kind, amount: r.amount, memo: r.memo, categoryId: r.categoryId };
   });
   if (!rows.length) return;

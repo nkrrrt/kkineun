@@ -808,3 +808,66 @@ test('잔액과 화면 버튼은 내역으로 들어오지 않는다', { skip },
   });
   assert.ok(!rows.some((r) => /관리|채우기|보내기/.test(r.memo)), '화면 버튼이 내역이 됐습니다');
 });
+
+/* ------------------------------------------------------------------ */
+/* 가게 이름                                                            */
+/* ------------------------------------------------------------------ */
+
+test('이름 앞에 붙은 아이콘 찌꺼기를 걷어낸다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  const 이름 = JSON.parse(JSON.stringify(
+    win.parseBankText(카드화면, 2026).map((r) => r.memo)));
+
+  // Ky 카드 캐시백 / il 회비 / oO 한전(홍길동) 처럼 앞에 붙던 것이 없어져야 한다
+  assert.ok(이름.includes('카드 캐시백'), '카드 캐시백이 깨끗하지 않습니다: ' + 이름.join(' | '));
+  assert.ok(이름.includes('회비'), '회비가 깨끗하지 않습니다: ' + 이름.join(' | '));
+  assert.ok(이름.includes('한전(홍길동)'), '한전(홍길동)이 깨끗하지 않습니다: ' + 이름.join(' | '));
+  assert.ok(이름.includes('홍길동'), '홍길동이 깨끗하지 않습니다: ' + 이름.join(' | '));
+  assert.ok(이름.includes('홍길동상회'), '홍길동상회가 깨끗하지 않습니다: ' + 이름.join(' | '));
+});
+
+test('SK·GS 처럼 진짜 상호는 남긴다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  assert.equal(win.tidyName('~ AB12 어느점'), 'AB12 어느점');
+  assert.equal(win.tidyName('Ky 카드 캐시백'), '카드 캐시백');
+  assert.equal(win.tidyName('SK 주유소'), 'SK 주유소', '진짜 상호를 지웠습니다');
+  assert.equal(win.tidyName('CU 어느점'), 'CU 어느점', '진짜 상호를 지웠습니다');
+});
+
+test('한 번 고쳐준 이름은 다음부터 알아서 바뀐다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 같은 가게도 찍을 때마다 다르게 틀린다: AB12%w CDE / AB12&t CDE / AB12ttuCDE
+  win.rememberName('AB12%w CDE', 'AB12 어느점');
+
+  const 이름 = JSON.parse(JSON.stringify(
+    win.parseBankText(카드화면, 2026).map((r) => r.memo)));
+  const 고쳐진것 = 이름.filter((n) => n === 'AB12 어느점');
+  assert.equal(고쳐진것.length, 3, '세 건 모두 안 바뀌었습니다: ' + 이름.join(' | '));
+});
+
+test('고쳐서 넣으면 그 이름을 기억해 둔다', { skip }, async () => {
+  const { doc, win } = openApp();
+  await wait();
+  patchDom(doc);
+
+  doc.getElementById('btn-paste').click();
+  doc.getElementById('paste-text').value = 카드화면;
+  doc.getElementById('form-paste').dispatchEvent(new win.Event('submit', { cancelable: true }));
+  await wait(150);
+
+  const 첫줄 = doc.querySelector('.shot-row .shot-memo');
+  첫줄.value = 'AB12 어느점';
+  첫줄.dispatchEvent(new win.Event('input'));
+
+  doc.getElementById('btn-shot-save').click();
+  await wait();
+
+  const 기억 = JSON.parse(win.localStorage.getItem('names') || '{}');
+  assert.ok(Object.values(기억).includes('AB12 어느점'), '고친 이름을 기억하지 않았습니다');
+});

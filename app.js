@@ -819,7 +819,10 @@ function parseBankText(text, baseYear) {
   lines.forEach(function (line) {
     var d = line.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
     if (d) {
-      buffer = [];               // 날짜가 바뀌면 읽다 만 것은 버린다
+      // 날짜가 바뀌기 전에 읽던 것을 먼저 마무리한다. 시각의 콜론이 인식되지
+      // 않으면(11:13 이 1133 으로) 그 줄로 끝맺지 못하는데, 그때 버려버리면
+      // 마지막 한 건이 통째로 사라진다.
+      flush();
       month = Number(d[1]);
       day = Number(d[2]);
       return;
@@ -865,7 +868,8 @@ function buildRow(buffer, year, month, day) {
       .replace(/[^\uAC00-\uD7A3\u3131-\u318E0-9A-Za-z)\]]+$/, '')
       .replace(/\s+/g, ' ')
       .trim();
-    if (rest.length > 1) cleaned.push(rest);
+    // 시각의 콜론이 날아가 '1133' 같은 숫자만 남은 줄은 이름이 아니다
+    if (rest.length > 1 && !/^\d{3,4}$/.test(rest)) cleaned.push(rest);
   });
 
   if (!picked) return null;

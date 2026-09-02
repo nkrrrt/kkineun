@@ -478,6 +478,55 @@ const 토스화면 = `8월 30일
 
 8월 27일`;
 
+/**
+ * 같은 화면을 1.5배로 키워 한글·영문을 함께 읽힌 결과. 이름은 더 정확해지지만
+ * 시각의 콜론이 날아가고(11:13 → 1133) 잔액이 이름 줄에 붙는다. 어느 쪽으로
+ * 읽히든 금액과 날짜는 놓치지 않아야 한다.
+ */
+const 토스화면_확대 = `8월 30일
+
+『기 가나시장상인회 _ -200원
+16:40            252 565%
+
+ry 무지개주유소      -50,000원
+15:58            252,765원
+
+8월 29일
+
+를 717  바이크
+
+0) PRT 바 19.     -820원
+어느페이       302,765원
+1133
+
+8월 27일`;
+
+test('확대해서 읽은 글자도 같은 세 건이 나온다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  const rows = win.parseBankText(토스화면_확대, 2026);
+  const 뽑은것 = JSON.parse(JSON.stringify(rows.map((r) => [r.date, r.kind, r.amount])));
+  assert.deepEqual(뽑은것, [
+    ['2026-08-30', 'expense', 200],
+    ['2026-08-30', 'expense', 50000],
+    ['2026-08-29', 'expense', 820],
+  ]);
+  // 이쪽에서는 가맹점 이름이 정확히 나온다
+  assert.match(rows[0].memo, /가나시장상인회/);
+  assert.match(rows[1].memo, /무지개주유소/);
+});
+
+test('시각이 깨져도 마지막 한 건을 놓치지 않는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 11:13 이 1133 으로 읽히면 그 줄로 끝맺지 못한다. 다음 날짜에서 마무리해야 한다.
+  const rows = win.parseBankText(토스화면_확대, 2026);
+  assert.equal(rows.length, 3, '한 건을 놓쳤습니다: ' + JSON.stringify(rows));
+  assert.ok(rows.every((r) => !/^\d{3,4}$/.test(r.memo)), '깨진 시각이 이름이 됐습니다');
+});
+
 test('토스 화면에서 읽은 글자를 내역으로 바꾼다', { skip }, async () => {
   const { win } = openApp();
   await wait(200);

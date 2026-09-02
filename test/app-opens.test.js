@@ -680,3 +680,43 @@ test('붙여넣은 글자가 비었거나 내역이 없으면 알려준다', { s
   assert.match(doc.getElementById('paste-error').textContent, /찾지 못했어요/);
   assert.equal(doc.getElementById('dlg-shot').hasAttribute('open'), false, '빈 확인 화면이 떴습니다');
 });
+
+test('창을 스크롤해도 저장·취소가 위에 남아 있다', { skip }, async () => {
+  const { doc } = openApp();
+  await wait();
+  patchDom(doc);
+  doc.getElementById('btn-add').click();
+
+  const form = doc.getElementById('form-tx');
+  const head = form.querySelector('.modal-head');
+  const body = form.querySelector('.modal-body');
+
+  assert.ok(head, '위쪽 고정 줄이 없습니다');
+  assert.ok(body, '스크롤 되는 부분이 없습니다');
+
+  // 저장·취소는 스크롤되는 부분이 아니라 고정된 줄에 있어야 한다
+  assert.ok(head.contains(doc.getElementById('btn-tx-save')), '저장이 위에 없습니다');
+  assert.ok(head.querySelector('[data-close]'), '취소가 위에 없습니다');
+  assert.ok(!body.contains(doc.getElementById('btn-tx-save')), '저장이 아직 아래에 있습니다');
+
+  // 삭제는 실수로 누르면 곤란하니 저장 옆에 두지 않는다
+  assert.ok(body.contains(doc.getElementById('btn-tx-delete')), '삭제가 저장 옆에 붙었습니다');
+
+  // 길어지는 카테고리 목록은 스크롤 쪽에 있어야 한다
+  assert.ok(body.contains(doc.getElementById('tx-categories')), '카테고리가 스크롤 밖에 있습니다');
+});
+
+test('가져오기 창도 넣기가 위에 있다', { skip }, async () => {
+  const { doc, win } = openApp();
+  await wait();
+  patchDom(doc);
+
+  doc.getElementById('btn-paste').click();
+  doc.getElementById('paste-text').value = 토스화면;
+  doc.getElementById('form-paste').dispatchEvent(new win.Event('submit', { cancelable: true }));
+  await wait(150);
+
+  const head = doc.getElementById('dlg-shot').querySelector('.modal-head');
+  assert.ok(head.contains(doc.getElementById('btn-shot-save')), '넣기가 위에 없습니다');
+  assert.equal(doc.getElementById('btn-shot-save').textContent, '3건 넣기');
+});

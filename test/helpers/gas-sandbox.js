@@ -153,6 +153,8 @@ class FakeSpreadsheet {
 export function loadGas({ owner = 'jimin@example.com', editors = ['suho@example.com'] } = {}) {
   // 구글에 증명서를 물어보는 흉내. tokens 에 넣어둔 것만 진짜로 친다.
   const tokens = new Map();
+  // 구글에 실제로 몇 번 물어봤는지. 쓸데없이 자주 물으면 하루 한도를 다 쓴다.
+  let asked = 0;
   const spreadsheet = new FakeSpreadsheet({ owner, editors });
   const session = { email: owner };
   let uuidCounter = 0;
@@ -221,6 +223,7 @@ export function loadGas({ owner = 'jimin@example.com', editors = ['suho@example.
     },
     UrlFetchApp: {
       fetch: (url) => {
+        asked += 1;
         const m = String(url).match(/id_token=([^&]+)/);
         const hit = m ? tokens.get(decodeURIComponent(m[1])) : null;
         return {
@@ -261,15 +264,28 @@ export function loadGas({ owner = 'jimin@example.com', editors = ['suho@example.
       return sheet ? sheet.data.map((r) => [...r]) : null;
     },
     sheetNames: () => spreadsheet.sheets.map((s) => s.getName()),
-    /** 구글이 발급한 증명서를 하나 만들어 둔다. */
-    issueToken(token, { email, aud, verified = true, expiresInSec = 3600 } = {}) {
-      tokens.set(token, {
+    /**
+     * 구글이 발급한 증명서를 하나 만들어 둔다.
+     *
+     * 실제 증명서와 같은 모양(머리.내용.서명)으로 만든다. 서버가 모양부터 보고
+     * 아닌 것은 구글에 묻지도 않으므로, 아무 글자나 쓰면 그 검사에 걸린다.
+     */
+    issueToken(name, { email, aud, verified = true, expiresInSec = 3600, iss } = {}) {
+      const info = {
+        nonce: String(name),
         aud: aud ?? context.CLIENT_ID,
+        iss: iss ?? 'https://accounts.google.com',
         email,
         email_verified: String(verified),
         exp: String(Math.floor(Date.now() / 1000) + expiresInSec),
-      });
+      };
+      // 내용 칸에 진짜로 그 정보를 담는다. 화면이 만료 시각을 직접 읽어보기 때문이다.
+      const token = `head.${Buffer.from(JSON.stringify(info)).toString('base64url')}.sign`;
+      tokens.set(token, info);
+      return token;
     },
+    /** 구글에 물어본 횟수 */
+    asked: () => asked,
     /** 화면이 창구를 부르는 것과 같은 모양으로 요청한다. */
     post(body) {
       context.MEMO_ = {};

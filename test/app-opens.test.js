@@ -22,16 +22,15 @@ const 지민 = 'jimin@example.com';
 const 수호 = 'suho@example.com';
 const read = (f) => readFileSync(new URL(`../${f}`, import.meta.url), 'utf8');
 const skip = JSDOM ? false : 'jsdom 없음';
+/** 시작일 1일 기준으로 오늘이 속한 달의 화면 표시 */
+function thisMonthLabel() {
+  const d = new Date();
+  return `${d.getFullYear()}년 ${d.getMonth() + 1}월`;
+}
+
 const API_URL = 'https://script.google.com/macros/s/TEST/exec';
 const CLIENT_ID = 'test.apps.googleusercontent.com';
 
-/** 구글이 주는 증명서와 같은 모양(머리.내용.서명)으로 만든다. 화면이 만료 시각을 읽는다. */
-function makeToken(email, secondsLeft = 3600) {
-  const body = Buffer.from(JSON.stringify({
-    email, aud: CLIENT_ID, exp: Math.floor(Date.now() / 1000) + secondsLeft,
-  })).toString('base64url');
-  return `head.${body}.sign`;
-}
 
 /**
  * 바깥에서 받아오는 것(글꼴·구글 로그인 코드)을 걷어내고 우리 파일을 끼워 넣는다.
@@ -69,8 +68,9 @@ function openApp({ signedIn = true, who = 지민, silent = null, secondsLeft = 3
   gas.context.CLIENT_ID = CLIENT_ID;
   gas.call('ensureSheets_');
 
-  const token = makeToken(who, secondsLeft);
-  gas.issueToken(token, { email: who });
+  const token = gas.issueToken('login', { email: who, expiresInSec: secondsLeft });
+  // 구글이 조용히 새로 내주는 증명서는 늘 성한 것이다
+  const freshToken = gas.issueToken('silent', { email: who });
 
   const calls = [];
   const errors = [];
@@ -99,7 +99,7 @@ function openApp({ signedIn = true, who = 지민, silent = null, secondsLeft = 3
             initialize(o) { w.__cb = o.callback; },
             renderButton(box) { box.innerHTML = '<button id="fake-google">구글로 로그인</button>'; },
             prompt(cb) {
-              if (silent) setTimeout(function () { w.__cb({ credential: token }); }, 0);
+              if (silent) setTimeout(function () { w.__cb({ credential: freshToken }); }, 0);
               else if (cb) cb({ isNotDisplayed: () => true, isSkippedMoment: () => false });
             },
           },
@@ -122,11 +122,13 @@ const st = (doc, id) => {
 
 test('로그인한 상태로 열면 가계부가 그려진다', { skip }, async () => {
   const { doc, gas, errors } = openApp();
+  // 오늘이 속한 달에 넣어야 첫 화면에 보인다. 달이 바뀌어도 깨지지 않게.
+  const today = new Date().toISOString().slice(0, 10);
   gas.call('addTransaction', {
-    date: '2026-08-10', kind: 'expense', amount: 12000, category: '식비', memo: '점심', month: '',
+    date: today, kind: 'expense', amount: 12000, category: '식비', memo: '점심', month: '',
   });
   gas.call('addTransaction', {
-    date: '2026-08-05', kind: 'income', amount: 3000000, category: '급여', memo: '월급', month: '',
+    date: today, kind: 'income', amount: 3000000, category: '급여', memo: '월급', month: '',
   });
   await wait();
 
@@ -136,7 +138,7 @@ test('로그인한 상태로 열면 가계부가 그려진다', { skip }, async 
   assert.equal(st(doc, 'fatal'), '숨김', '오류: ' + doc.getElementById('fatal-msg').textContent);
   assert.equal(st(doc, 'screens'), '보임');
   assert.equal(st(doc, 'tabbar'), '보임');
-  assert.match(doc.getElementById('month-label').textContent, /2026년 8월/);
+  assert.equal(doc.getElementById('month-label').textContent, thisMonthLabel());
 });
 
 test('로그인 전에는 로그인 화면만 보인다', { skip }, async () => {
@@ -288,7 +290,7 @@ test('두 번째부터는 기다리지 않고 바로 보여준다', { skip }, as
   await wait(120);
   assert.equal(st(next.doc, 'screens'), '보임', '서버를 기다리느라 빈 화면입니다');
   assert.equal(st(next.doc, 'loading'), '숨김');
-  assert.match(next.doc.getElementById('month-label').textContent, /2026년 8월/);
+  assert.equal(next.doc.getElementById('month-label').textContent, thisMonthLabel());
 });
 
 test('새 자료를 못 받아와도 보던 화면을 뺏지 않는다', { skip }, async () => {
@@ -341,7 +343,7 @@ test('시작일·종료일을 따로 정할 수 있고, 겹치면 알려준다',
   assert.equal(start.value, '24', '시작일이 멋대로 바뀌었습니다');
   assert.equal(end.value, '25');
   assert.match(note.textContent, /모두/, '겹친다고 안 알려줍니다');
-  assert.match(note.textContent, /7\.24 ~ 8\.25/, '기간이 틀립니다: ' + note.textContent);
+  assert.match(note.textContent, /\d+\.24 ~ \d+\.25/, '기간이 틀립니다: ' + note.textContent);
 });
 
 /* ------------------------------------------------------------------ */
@@ -370,7 +372,7 @@ function patchDom(doc) {
 }
 
 /** 기록 창을 열어 한 건 적고 저장을 누른다 */
-function addOne(doc, { amount = '7000', date = '2026-08-12', memo = '점심' } = {}) {
+function addOne(doc, { amount = '7000', date = new Date().toISOString().slice(0, 10), memo = '점심' } = {}) {
   patchDom(doc);
   doc.getElementById('btn-add').click();
   const form = doc.getElementById('form-tx');
@@ -429,4 +431,21 @@ test('한 번 본 달로 돌아가면 기다리지 않는다', { skip }, async (
   doc.getElementById('btn-prev-month').click();   // 다시 7월
   await wait(60);   // 서버 답이 오기 전
   assert.equal(doc.getElementById('month-label').textContent, label, '본 적 있는 달인데 안 그려집니다');
+});
+
+test('기록 창에서 카테고리가 맨 아래에 온다', { skip }, async () => {
+  const { doc } = openApp();
+  await wait();
+  patchDom(doc);
+  doc.getElementById('btn-add').click();
+
+  // 카테고리는 줄이 여러 개로 늘어나 아래로 밀리므로, 날짜·사람·메모가 먼저 보여야 한다
+  const order = [...doc.querySelectorAll('#form-tx .field')].map((f) => f.querySelector('span').textContent);
+  const 자리 = (name) => order.indexOf(name);
+
+  assert.ok(자리('얼마?') < 자리('언제?'), '금액이 맨 위가 아닙니다');
+  assert.ok(자리('언제?') < 자리('어디에?'), '날짜가 카테고리보다 아래입니다');
+  assert.ok(자리('누가?') < 자리('어디에?'), '사람이 카테고리보다 아래입니다');
+  assert.ok(자리('메모') < 자리('어디에?'), '메모가 카테고리보다 아래입니다');
+  assert.equal(자리('어디에?'), order.length - 1, '카테고리가 맨 아래가 아닙니다');
 });

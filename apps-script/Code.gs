@@ -50,6 +50,9 @@ var CACHE_TOKEN_SECONDS = 1800;
 /** 공유 목록을 기억하는 시간. 짧을수록 공유를 끊었을 때 빨리 막힌다. */
 var CACHE_EDITORS_SECONDS = 600;
 
+/** 가짜로 판명된 증명서에 남기는 표시. */
+var BAD_TOKEN = '\u0000bad';
+
 // 내역 시트 열 번호 (1부터)
 var TX_ID = 1, TX_DATE = 2, TX_KIND = 3, TX_AMOUNT = 4, TX_CAT = 5, TX_MEMO = 6, TX_USER = 7, TX_AT = 8;
 var GRP_ID = 1, GRP_KIND = 2, GRP_NAME = 3, GRP_COLOR = 4, GRP_ACTIVE = 5;
@@ -205,6 +208,12 @@ function verifyToken_(token) {
   if (!t) fail_('로그인이 필요합니다.');
   if (!CLIENT_ID) fail_('Code.gs 의 CLIENT_ID 가 비어 있습니다.');
 
+  // 증명서 모양이 아니면 구글에 물어볼 것도 없다. 물어보는 횟수에 한도가 있어서,
+  // 아무 글자나 보내는 것만으로 앱을 못 쓰게 만들 수 있다.
+  if (t.length > 4096 || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(t)) {
+    fail_('로그인 정보가 올바르지 않습니다. 다시 로그인해 주세요.');
+  }
+
   var cache = docCache_();
   var key = 'tok-' + Utilities.base64EncodeWebSafe(
     Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, t));
@@ -212,16 +221,25 @@ function verifyToken_(token) {
   // 같은 증명서를 몇 분 안에 다시 물어보지 않는다. 매번 물으면 그만큼 느려진다.
   if (cache) {
     var hit = cache.get(key);
+    if (hit === BAD_TOKEN) fail_('증명서가 만료되었습니다. 다시 로그인해 주세요.');
     if (hit) return hit;
   }
 
   var res = UrlFetchApp.fetch(
     'https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(t),
     { muteHttpExceptions: true });
-  if (res.getResponseCode() !== 200) fail_('증명서가 만료되었습니다. 다시 로그인해 주세요.');
+  if (res.getResponseCode() !== 200) {
+    // 가짜 증명서도 기억해 둔다. 안 그러면 아무 글자나 계속 보내서 구글에 묻는 횟수를
+    // 다 써버릴 수 있고, 그러면 우리 둘도 앱을 못 쓰게 된다.
+    if (cache) cache.put(key, BAD_TOKEN, 60);
+    fail_('증명서가 만료되었습니다. 다시 로그인해 주세요.');
+  }
 
   var info = JSON.parse(res.getContentText());
   if (info.aud !== CLIENT_ID) fail_('다른 곳에서 발급된 증명서입니다.');
+  if (info.iss !== 'accounts.google.com' && info.iss !== 'https://accounts.google.com') {
+    fail_('구글이 발급한 증명서가 아닙니다.');
+  }
   if (String(info.email_verified) !== 'true') fail_('구글에서 확인되지 않은 계정입니다.');
   if (Number(info.exp) * 1000 < Date.now()) fail_('증명서가 만료되었습니다. 다시 로그인해 주세요.');
 
@@ -234,6 +252,20 @@ function verifyToken_(token) {
     var left = Math.floor(Number(info.exp) - Date.now() / 1000);
     if (left > 60) cache.put(key, email, Math.min(left - 60, CACHE_TOKEN_SECONDS));
   }
+  return email;
+}
+
+/**
+ * 기록의 작성자로 쓸 사람. 이 가계부를 함께 쓰는 사람이라야 한다.
+ *
+ * 비워 두면 지금 접속한 사람이 된다. 아무 주소나 적어 보내면 시트에 그 이름이
+ * 남고 합계에도 없던 사람이 생기므로, 명단에 있는지 확인한다.
+ */
+function checkOwner_(value, fallback) {
+  var email = String(value == null ? '' : value).trim().toLowerCase();
+  if (!email) return fallback;
+  if (email === fallback) return email;
+  if (!isMember_(email)) fail_('이 가계부를 함께 쓰는 사람만 작성자로 지정할 수 있습니다.');
   return email;
 }
 
@@ -670,6 +702,19 @@ function checkIcon_(value) {
   return v;
 }
 
+/**
+ * 시트 칸에 그대로 넣어도 안전한 글자로 바꾼다.
+ *
+ * 구글 시트는 = + - @ 로 시작하는 값을 수식으로 읽는다. 메모에
+ * =IMAGE("https://…"&A2) 같은 걸 적어두면, 나중에 시트를 열었을 때 옆 칸 내용이
+ * 바깥으로 새어 나갈 수 있다. 앞에 작은따옴표를 붙이면 시트가 '글자'로 다룬다.
+ * 이 따옴표는 화면에도 시트에도 보이지 않는다.
+ */
+function safeCell_(text) {
+  var v = String(text == null ? '' : text);
+  return /^[=+\-@\t\r]/.test(v) ? "'" + v : v;
+}
+
 function checkText_(value, label, max) {
   var v = String(value == null ? '' : value).trim();
   if (!v) fail_(label + '을(를) 입력해 주세요.');
@@ -777,7 +822,7 @@ function renameMe(newName) {
       return { ok: true, name: name };
     }
   }
-  sheet.appendRow([email, name, new Date()]);
+  sheet.appendRow([email, safeCell_(name), new Date()]);
   return { ok: true, name: name };
 }
 
@@ -824,7 +869,7 @@ function addGroup(payload) {
         return updateGroup({ id: groups[i].id, isActive: true, color: color });
       }
     }
-    sheet_(SHEET_GROUP).appendRow([newId_(), kind, name, color, true]);
+    sheet_(SHEET_GROUP).appendRow([newId_(), kind, safeCell_(name), color, true]);
     return catalog_();
   } finally {
     lock.releaseLock();
@@ -979,7 +1024,7 @@ function addCategory(payload) {
         return updateCategory({ id: cats[i].id, isActive: true, group: group, icon: icon });
       }
     }
-    sheet_(SHEET_CAT).appendRow([newId_(), kind, group, name, icon, true]);
+    sheet_(SHEET_CAT).appendRow([newId_(), kind, safeCell_(group), safeCell_(name), icon, true]);
     return catalog_();
   } finally {
     lock.releaseLock();
@@ -1115,9 +1160,9 @@ function addTransaction(payload) {
   var kind = checkKind_(payload.kind);
   var amount = checkAmount_(payload.amount);
   var date = checkDate_(payload.date);
-  var memo = String(payload.memo == null ? '' : payload.memo).trim().slice(0, 200);
+  var memo = safeCell_(String(payload.memo == null ? '' : payload.memo).trim().slice(0, 200));
   var category = resolveCategoryName_(kind, payload.categoryId);
-  var owner = payload.userEmail ? String(payload.userEmail).trim().toLowerCase() : email;
+  var owner = checkOwner_(payload.userEmail, email);
 
   // 한 줄 덧붙이기라 두 사람이 동시에 넣어도 서로 덮어쓰지 않는다.
   sheet_(SHEET_TX).appendRow([
@@ -1147,13 +1192,13 @@ function updateTransaction(payload) {
     var date = payload.date === undefined ? toIsoDate_(current[TX_DATE - 1]) : checkDate_(payload.date);
     var memo = payload.memo === undefined
       ? String(current[TX_MEMO - 1] || '')
-      : String(payload.memo == null ? '' : payload.memo).trim().slice(0, 200);
+      : safeCell_(String(payload.memo == null ? '' : payload.memo).trim().slice(0, 200));
     var category = payload.categoryId === undefined && kind === String(current[TX_KIND - 1]).trim()
       ? String(current[TX_CAT - 1] || '')
       : resolveCategoryName_(kind, payload.categoryId);
     var owner = payload.userEmail === undefined
       ? String(current[TX_USER - 1] || '')
-      : String(payload.userEmail).trim().toLowerCase();
+      : checkOwner_(payload.userEmail, email);
 
     sheet.getRange(index + 2, 1, 1, TX_HEADERS.length).setValues([[
       id, toSheetDate_(date), kind, amount, category, memo, owner, current[TX_AT - 1] || new Date()

@@ -35,7 +35,7 @@
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <link rel="stylesheet" href="styles.css?v=20260831i" />
+  <link rel="stylesheet" href="styles.css?v=20260902a" />
 </head>
 <body>
 
@@ -284,11 +284,6 @@
       <input name="amount" inputmode="numeric" placeholder="0" required />
     </label>
 
-    <div class="field">
-      <span>어디에?</span>
-      <div class="chip-picker" id="tx-categories"></div>
-    </div>
-
     <label class="field">
       <span>언제?</span>
       <input name="date" type="date" required />
@@ -303,6 +298,12 @@
       <span>메모</span>
       <input name="memo" placeholder="예: 점심 김치찌개" maxlength="200" />
     </label>
+
+    <!-- 카테고리는 칸이 여러 줄로 늘어나므로 맨 아래에 둔다 -->
+    <div class="field">
+      <span>어디에?</span>
+      <div class="chip-picker" id="tx-categories"></div>
+    </div>
 
     <div class="row" style="justify-content: flex-end; margin-top: 4px">
       <button type="button" class="btn btn-danger" id="btn-tx-delete" hidden>삭제</button>
@@ -335,7 +336,7 @@
 </dialog>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="config.js?v=20260831i"></script>
-<script src="app.js?v=20260831i"></script>
+<script src="config.js?v=20260902a"></script>
+<script src="app.js?v=20260902a"></script>
 </body>
 </html>

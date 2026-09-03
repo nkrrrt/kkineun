@@ -811,6 +811,14 @@ function parseBankText(text, baseYear) {
   var buffer = [];
   var before = null;      // 바로 앞 날짜 머리글. 거래내역은 최신순이라 이보다 뒤일 수 없다.
 
+  // 한 건이 시각(17:31)으로 끝나는 화면인가. 그렇다면 시각만으로 건을 가를 수
+  // 있으니, 금액이 두 번 보인다고 쪼개지 않는다. 이름이 여러 줄로 잘리고 그
+  // 사이에 잔액이 끼면 한 건이 둘로 갈라져 없는 내역이 생기기 때문이다.
+  // 카드 명세서에는 시각이 없어서 그때는 예전처럼 금액으로 가른다.
+  var 시각으로나뉨 = lines.some(function (l) {
+    return /^[^\d]{0,4}\d{1,2}\s*:\s*\d{2}\s*$/.test(l);
+  });
+
   function flush() {
     var row = buildRow(buffer, year, month, day);
     if (row) out.push(row);
@@ -857,7 +865,7 @@ function parseBankText(text, baseYear) {
     // (…-820원 / 어느페이 302,765원 — 뒷줄은 새 건이 아니라 이름의 나머지다)
     // 카드 명세서에는 부호가 아예 없으므로 이 예외에 걸리지 않는다.
     var 잔액인듯 = hasSigned(buffer) && !hasSigned([line]);
-    if (hasMoney([line]) && hasName(line) && hasMoney(buffer) && !잔액인듯) flush();
+    if (!시각으로나뉨 && hasMoney([line]) && hasName(line) && hasMoney(buffer) && !잔액인듯) flush();
     buffer.push(line);
   });
   flush();
@@ -878,12 +886,15 @@ function parseBankText(text, baseYear) {
  * 그냥 숫자 뭉치(상호 속 숫자, 깨진 시각 1133)는 금액으로 보지 않는다.
  */
 function moneyIn(line) {
-  var re = /([+\-\u2212])?\s*(\d{1,3}(?:[,\s]\d{3})+|\d{1,9})\s*([원웜월])?/g;
+  // 천 단위 쉼표가 마침표로 읽히기도 한다(14,900 → 14.900). 원화에는 소수점이
+  // 없으니 세 자리가 뒤따르는 마침표는 쉼표로 본다. 시각(13:09)이 마침표로
+  // 읽혀도 뒤가 두 자리라 여기에 걸리지 않는다.
+  var re = /([+\-\u2212])?\s*(\d{1,3}(?:[,.\s]\d{3})+|\d{1,9})\s*([원웜월])?/g;
   var out = [];
   var m;
   while ((m = re.exec(line)) !== null) {
     var raw = m[2];
-    var grouped = /[,\s]/.test(raw);
+    var grouped = /[,.\s]/.test(raw);
     if (!grouped && !m[3] && !m[1]) continue;      // 그냥 숫자는 금액이 아니다
     var value = Number(raw.replace(/[^0-9]/g, ''));
     if (!value) continue;
@@ -1134,6 +1145,16 @@ function buildRow(buffer, year, month, day) {
   var cleaned = [];
   var lead = '';
 
+  // 한 건에서 마지막에 나오는 금액은 잔액이다.
+  //
+  // 화면이 늘 이 차례다 — 가게 이름 · 쓴 돈 · 남은 돈 · 시각. 그래서 금액이
+  // 둘 이상 보이면 마지막 것은 셈에서 뺀다. 부호로만 가리려 했더니 어두운
+  // 화면에서 빼기 부호가 잔액 줄로 옮겨 붙는 일이 있어(- 29,216원) 잔액을
+  // 쓴 돈으로 잘못 집었다. 차례는 부호보다 잘 흔들리지 않는다.
+  var 금액수 = 0;
+  buffer.forEach(function (line) { 금액수 += moneyIn(line).length; });
+  var 본금액 = 0;
+
   buffer.forEach(function (line) {
     // 빼기 부호는 금액에서 멀리 떨어져 인식되기도 한다. 줄 전체를 보고 판단한다.
     var minus = /[\-\u2212]/.test(line);
@@ -1141,9 +1162,11 @@ function buildRow(buffer, year, month, day) {
     var rest = line;
 
     moneyIn(line).forEach(function (found) {
+      본금액++;
+      var 잔액자리 = 금액수 > 1 && 본금액 === 금액수;
       var signed = minus || plus || !!found.sign;
-      // 부호가 있는 줄의 금액이 진짜 금액이다. 잔액에는 부호가 없다.
-      if (!picked || (!picked.signed && signed)) {
+      // 부호가 있는 금액이 진짜 쓴 돈이다. 잔액에는 부호가 없다.
+      if (!잔액자리 && (!picked || (!picked.signed && signed))) {
         picked = {
           value: found.value,
           signed: signed,
@@ -1255,28 +1278,77 @@ function loadOcr() {
 /**
  * 사진을 글자 읽기 좋게 다듬는다.
  *
- * 실제로 여러 설정을 견줘봤다. 1.5배로 키우고 흑백으로 바꾼 것이 가장 나았다.
- * 2배·3배는 이름은 더 잘 읽지만 금액을 놓치는 일이 생긴다 — 이름은 고치면
- * 되지만 금액을 놓치면 내역이 통째로 사라지므로 더 나쁘다.
+ * 실제 토스 화면 두 장으로 여덟 가지를 견줘봤다(흑백만 · 반전 · 대비 늘리기 ·
+ * 선명하게 · 배율 1.5 · 2). 어두운 화면에서 흑백으로만 두면 금액을 놓쳤다.
+ *
+ *   흑백 1.5배(전에 쓰던 것) : 금액 9/11, 없는 내역 하나가 생김
+ *   반전+대비 2배            : 금액 11/11
+ *
+ * 글자 인식기는 흰 바탕에 검은 글씨로 배웠다. 다크모드 화면은 그 반대라
+ * 뒤집어 주는 편이 낫다. 밝은 화면은 뒤집으면 되레 나빠지므로, 전체가
+ * 어두울 때만 뒤집는다.
  */
 function prepShot(file) {
   return new Promise(function (resolve, reject) {
     var url = URL.createObjectURL(file);
     var img = new Image();
     img.onload = function () {
-      var scale = 1.5;
-      var cv = document.createElement('canvas');
-      cv.width = Math.round(img.naturalWidth * scale);
-      cv.height = Math.round(img.naturalHeight * scale);
+      // 1) 원래 크기에서 흑백으로 바꾸고 밝기를 잰다
+      var flat = document.createElement('canvas');
+      flat.width = img.naturalWidth;
+      flat.height = img.naturalHeight;
+      var fx = flat.getContext('2d');
+      fx.drawImage(img, 0, 0);
 
-      var ctx = cv.getContext('2d');
-      ctx.drawImage(img, 0, 0, cv.width, cv.height);
-      var px = ctx.getImageData(0, 0, cv.width, cv.height);
-      for (var i = 0; i < px.data.length; i += 4) {
-        var g = (px.data[i] * 0.299 + px.data[i + 1] * 0.587 + px.data[i + 2] * 0.114) | 0;
-        px.data[i] = px.data[i + 1] = px.data[i + 2] = g;
+      var px = fx.getImageData(0, 0, flat.width, flat.height);
+      var data = px.data;
+      var hist = new Uint32Array(256);
+      var i;
+      for (i = 0; i < data.length; i += 4) {
+        var g = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) | 0;
+        data[i] = data[i + 1] = data[i + 2] = g;
+        hist[g]++;
       }
-      ctx.putImageData(px, 0, 0);
+
+      // 2) 전체가 어두우면 다크모드다. 뒤집는다.
+      var total = flat.width * flat.height;
+      var sum = 0;
+      for (i = 0; i < 256; i++) sum += hist[i] * i;
+      if (sum / total < 128) {
+        for (i = 0; i < data.length; i += 4) {
+          data[i] = data[i + 1] = data[i + 2] = 255 - data[i];
+        }
+        var flipped = new Uint32Array(256);
+        for (i = 0; i < 256; i++) flipped[255 - i] = hist[i];
+        hist = flipped;
+      }
+
+      // 3) 대비를 늘린다. 위아래 2%는 버리고 남은 폭을 0~255로 편다.
+      var cut = Math.floor(total * 0.02);
+      var lo = 0, hi = 255, seen = 0;
+      for (i = 0; i < 256; i++) { seen += hist[i]; if (seen > cut) { lo = i; break; } }
+      seen = 0;
+      for (i = 255; i >= 0; i--) { seen += hist[i]; if (seen > cut) { hi = i; break; } }
+      if (hi > lo) {
+        var map = new Uint8Array(256);
+        for (i = 0; i < 256; i++) {
+          var v = Math.round((i - lo) * 255 / (hi - lo));
+          map[i] = v < 0 ? 0 : (v > 255 ? 255 : v);
+        }
+        for (i = 0; i < data.length; i += 4) {
+          data[i] = data[i + 1] = data[i + 2] = map[data[i]];
+        }
+      }
+      fx.putImageData(px, 0, 0);
+
+      // 4) 두 배로 키운다
+      var cv = document.createElement('canvas');
+      cv.width = Math.round(flat.width * 2);
+      cv.height = Math.round(flat.height * 2);
+      var ctx = cv.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(flat, 0, 0, cv.width, cv.height);
 
       URL.revokeObjectURL(url);
       resolve(cv);

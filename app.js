@@ -975,19 +975,45 @@ var BRANDS = [
   ['KFC', ['KFC']],
   ['S-OIL', ['SOIL', 'S-OIL']],
   ['SK에너지', ['SK에너지']],
-  ['GS칼텍스', ['GS칼텍스']]
+  ['GS칼텍스', ['GS칼텍스']],
+  // 토스 화면에 자주 나오는 곳들. 한글 표기도 같이 적어 둔다 — 토스는 '씨유(CU)'
+  // 처럼 한글로 쓰는데, 그 한글이 깨지면 뒤쪽 영문만 남기 때문이다.
+  ['CU', ['씨유']],
+  ['GS25', ['지에스25']],
+  ['CGV', ['CGV']],
+  ['메가박스', ['MEGABOX', '메가박스']],
+  ['롯데시네마', ['롯데시네마']],
+  ['카카오T바이크', ['카카오T바이크']],
+  ['카카오T', ['카카오T택시']],
+  ['배달의민족', ['배달의민족', '우아한형제들']],
+  ['토스페이', ['토스페이']],
+  ['쿠팡', ['COUPANG', '쿠팡']],
+  ['메가커피', ['메가엠지씨커피', '메가커피']],
+  ['컴포즈커피', ['컴포즈커피']],
+  ['이디야', ['EDIYA', '이디야']],
+  ['투썸플레이스', ['투썸플레이스']],
+  ['파리바게뜨', ['파리바게뜨']],
+  ['뚜레쥬르', ['뚜레쥬르']],
+  ['배스킨라빈스', ['배스킨라빈스']],
+  ['이마트', ['이마트']],
+  ['롯데마트', ['롯데마트']]
 ];
 
 /**
  * 글자 하나가 무엇으로 잘못 읽히는지. 눈으로 봐서 헷갈리는 것만 적었다.
  * 넉넉하게 잡으면 엉뚱한 이름까지 상호로 바꿔버리므로 여기서는 인색한 편이 낫다.
  */
+//
+// 한글 낱자도 섞어 둔다. 낱자는 알파벳과 생김새가 겹쳐서, 한글판으로 읽으면
+// 알파벳이 낱자로 튀어나온다 — 'ㅇ'은 동그라미(C·O), 'ㅣ'는 작대기(I·T·l·1).
+// 'CGV'가 '0ㅇ6\/', 'CU'가 'ㅇ4', '카카오T바이크'가 '카카오 ㅣ 바이크'로
+// 읽힌 것이 다 이 때문이었다.
 var LOOKALIKE = {
-  O: 'Oo0', I: 'Il1|', L: 'Ll1|', S: 'Ss5', G: 'Gg6@', Z: 'Zz2',
-  B: 'Bb8', A: 'Aa4', E: 'Ee3', T: 'Tt7', C: 'Cc(', U: 'UuVv',
+  O: 'Oo0ㅇ', I: 'Il1|ㅣ', L: 'Ll1|ㅣ', S: 'Ss5', G: 'Gg6@', Z: 'Zz2',
+  B: 'Bb8', A: 'Aa4', E: 'Ee3', T: 'Tt7ㅣ', C: 'Cc(ㅇ', U: 'UuVv4',
   D: 'Dd', N: 'Nn', M: 'Mm', R: 'Rr', K: 'Kk', F: 'Ff', P: 'Pp',
   W: 'Ww', Y: 'Yy', H: 'Hh', V: 'Vv', X: 'Xx', Q: 'Qq', J: 'Jj',
-  '0': '0Oo', '1': '1Il|', '2': '2Zz', '3': '3Ee', '4': '4Aa',
+  '0': '0Ooㅇ', '1': '1Il|ㅣ', '2': '2Zz', '3': '3Ee', '4': '4Aa',
   '5': '5Ss', '6': '6Gg', '7': '7Tt', '8': '8Bb', '9': '9'
 };
 
@@ -1054,8 +1080,72 @@ function isBrandHead(head) {
  * 짧고 한글이 없는 토막이 맨 앞에 홀로 있으면 아이콘으로 본다. 다만 SK·GS·CU
  * 처럼 모두 대문자인 것은 진짜 상호일 수 있어 남긴다.
  */
+/**
+ * 두 글자로 쪼개져 읽힌 알파벳을 도로 붙인다.
+ *
+ * 'V'는 획이 둘로 떨어져 '\/' 나 '|/' 로 읽히는 일이 잦다. 낱자 하나로
+ * 되돌려 놓아야 상표 대조가 걸린다. ('CGV' → '6\/' → '6V')
+ */
+function fuseSplitLetters(text) {
+  return String(text || '').replace(/\\\s*\/|\|\s*\//g, 'V');
+}
+
+/**
+ * 앞에 아이콘 찌꺼기가 한두 글자 붙어 상표를 가리고 있으면 걷어낸다.
+ *
+ * 가게 이름 왼쪽의 동그란 아이콘이 글자에 달라붙어 '0ㅇCGV온라인예매' 처럼
+ * 한 낱말로 읽히면, 띄어쓰기가 없어 기존 찌꺼기 떼기가 손을 못 댄다. 한두
+ * 글자를 건너뛴 자리에서 아는 상호가 통째로 맞을 때만 그만큼 잘라낸다.
+ * 맞아야만 자르므로 멀쩡한 이름을 깎을 일은 없다.
+ */
+function unmaskBrand(text) {
+  var v = String(text || '');
+  for (var i = 1; i <= 2 && i < v.length; i++) {
+    var tail = v.slice(i);
+    if (/^[\uAC00-\uD7A3]/.test(tail)) break;   // 한글로 시작하면 이미 이름이다
+    if (isBrandHead(tail)) return tail;
+  }
+  return v;
+}
+
+/**
+ * '(주)' 앞에 붙은 짧은 찌꺼기를 잘라낸다.
+ *
+ * '도개 (주)캡슬스토리', '기 (주)엔바이콘' — 회사 이름 앞의 아이콘이 한글로
+ * 잘못 읽힌 것이다. '(주)'는 상호의 시작을 알려주는 또렷한 표라서, 그 앞에
+ * 짧은 토막만 남아 있으면 찌꺼기로 봐도 된다.
+ */
+function cutBeforeCorp(text) {
+  var v = String(text || '');
+  var m = v.match(/[(\[]?\s*[주유사재]\s*[)\]]|㈜/);
+  if (!m || !m.index || m.index > 3) return v;
+  return v.slice(m.index);
+}
+
+/**
+ * 아는 상호 뒤에 붙은 글자 부스러기를 턴다.
+ *
+ * '지에스25 zt NSH', '씨유(CU) (ㅇ4)' 처럼 금액 칸의 잔해가 상호 뒤에 따라
+ * 붙는다. 앞이 아는 상호로 딱 떨어지고 뒤에 한글도, 네 글자 이상 이어지는
+ * 영단어도 없으면 부스러기로 본다. 'GS25 THE FRESH' 나 '이마트24 서초점'
+ * 처럼 진짜 지점 이름은 그 조건에 걸리지 않아 그대로 남는다.
+ */
+function dropBrandTail(text) {
+  var v = String(text || '');
+  var rules = brandRules();
+  for (var i = 0; i < rules.length; i++) {
+    var m = v.match(rules[i].re);
+    if (!m || !m[0] || m[0].length === v.length) continue;
+    var tail = v.slice(m[0].length);
+    if (/[\uAC00-\uD7A3]/.test(tail)) return v;      // 지점 이름은 남긴다
+    if (/[A-Za-z]{4}/.test(tail)) return v;           // 진짜 영단어도 남긴다
+    return v.slice(0, m[0].length).trim();
+  }
+  return v;
+}
+
 function tidyName(text) {
-  var v = fixBrand(String(text || '').replace(/\s+/g, ' ').trim());
+  var v = fixBrand(unmaskBrand(fuseSplitLetters(text).replace(/\s+/g, ' ').trim()));
 
   for (var i = 0; i < 2; i++) {
     var m = v.match(/^(\S{1,2})\s+(\S.*)$/);
@@ -1065,8 +1155,10 @@ function tidyName(text) {
     var 모두대문자 = /^[A-Z]{2}$/.test(head);
     // 'Cu' 처럼 잘못 읽힌 편의점 이름을 찌꺼기로 오해해 지우면 안 된다
     if (한글있음 || 모두대문자 || isBrandHead(head)) break;
-    v = fixBrand(m[2]);   // 찌꺼기를 떼고 나면 상호가 드러나기도 한다
+    v = fixBrand(unmaskBrand(m[2]));   // 찌꺼기를 떼고 나면 상호가 드러나기도 한다
   }
+
+  v = dropBrandTail(cutBeforeCorp(v));
 
   return v
     .replace(/^[^\uAC00-\uD7A3\u3131-\u318E0-9A-Za-z(]+/, '')
@@ -1137,12 +1229,53 @@ function joinName(parts) {
   return out;
 }
 
+/**
+ * 가게 이름은 금액이 없는 줄에서 고른다.
+ *
+ * 한 건이 여러 줄일 때, 이름만 있는 줄과 금액이 함께 있는 줄이 나뉜다. 금액이
+ * 있는 줄에서 숫자를 걷어내고 남는 것은 대개 금액 칸 언저리의 부스러기다.
+ *
+ *   우아한형제들          ← 이름만 있는 줄
+ *   a TE Is    14.900     ← 숫자를 빼면 'a TE Is' 만 남는다
+ *
+ * 다만 금액 줄에 남은 것이 늘 부스러기인 건 아니다. 이름이 길어 다음 줄로
+ * 넘어가면, 그 뒷토막이 금액과 한 줄에 놓인다.
+ *
+ *   어느 바이크              ← 이름만 있는 줄
+ *   어느페이  、 >  -820원   ← 숫자를 빼면 '어느페이' — 이건 이름의 뒷토막이다
+ *
+ * 둘을 가르는 잣대는 '이름이 이미 온전한가' 다. 금액 없는 줄이 아는 상호로
+ * 딱 떨어지면(CU, 배달의민족, 카카오T바이크) 더 붙일 것이 없으니 나머지를
+ * 버린다. 그렇지 않으면 뒷토막일 수 있으므로, 쓸 만해 보이는 것은 이어 붙인다.
+ * 쓸 만하다는 건 한글이 두 자 이상 붙어 있거나 아는 상호라는 뜻이다.
+ */
+function pickNameLines(모두, 금액없는줄) {
+  var 쓸만함 = function (v) {
+    return /[\uAC00-\uD7A3]{2}/.test(v) || isBrandHead(v);
+  };
+  var 온전한상호 = function (v) {
+    var rules = brandRules();
+    for (var i = 0; i < rules.length; i++) {
+      var m = v.match(rules[i].re);
+      if (m && m[0].length === v.length) return true;
+    }
+    return false;
+  };
+
+  for (var i = 0; i < 금액없는줄.length; i++) {
+    if (온전한상호(금액없는줄[i])) return [금액없는줄[i]];
+  }
+  var 쓸만 = 모두.filter(쓸만함);
+  return 쓸만.length ? 쓸만 : 모두;
+}
+
 /** 한 건에서 금액·이름을 뽑는다. 못 뽑으면 null. */
 function buildRow(buffer, year, month, day) {
   if (!buffer.length || !month || !day) return null;
 
   var picked = null;
   var cleaned = [];
+  var 금액없는줄 = [];
   var lead = '';
 
   // 한 건에서 마지막에 나오는 금액은 잔액이다.
@@ -1182,14 +1315,19 @@ function buildRow(buffer, year, month, day) {
     rest = tidyName(rest);
     // 시각의 콜론이 날아가 '1133' 같은 숫자만 남은 줄은 이름이 아니다
     if (rest.length > 1 && !/^\d{3,4}$/.test(rest)) {
-      cleaned.push(rest);
+      // 글자가 하나도 없이 숫자만 남은 줄은 이름이 아니다. 잔액이나 주문번호가
+      // 이렇게 따로 떨어져 나와 '카카오T바이크 2577092' 가 되곤 했다.
+      if (/[\uAC00-\uD7A3\u3131-\u318EA-Za-z]/.test(rest)) {
+        cleaned.push(rest);
+        if (!hasMoney([line])) 금액없는줄.push(rest);
+      }
       if (!lead && raw) lead = raw.split(' ')[0];
     }
   });
 
   if (!picked) return null;
 
-  var name = joinName(cleaned).slice(0, 60);
+  var name = joinName(pickNameLines(cleaned, 금액없는줄)).slice(0, 60);
   return {
     date: isoFrom(year, month, day),
     kind: picked.income ? 'income' : 'expense',
@@ -1376,11 +1514,6 @@ function looksLatin(text) {
   return !!text && !/[\uAC00-\uD7A3\u3131-\u318E]/.test(text) && /[0-9A-Za-z]/.test(text);
 }
 
-/** 영어판을 한 번 더 읽어볼 만한가. */
-function needsEnglishPass(rows) {
-  return rows.some(function (r) { return looksLatin(r.lead); });
-}
-
 /**
  * 이름 안에서 한글이 아닌 덩어리들. '이마트24' 의 '24' 같은 것도 함께 걸린다.
  */
@@ -1401,11 +1534,22 @@ function looksGarbled(bit) {
   return true;
 }
 
+/**
+ * 이름 앞머리에 아는 상호가 이미 잡혔는가.
+ *
+ * 영어판을 한 번 더 읽는 것은 '뭉개진 상호를 되살리려고' 하는 일이다. 이미
+ * 상호가 붙어 있으면 할 일이 없다. '판교점' 처럼 지점 이름만 남은 것은 아직
+ * 상호가 없는 것이므로 되살릴 거리가 맞다.
+ */
+function hasBrandName(name) {
+  return isBrandHead(String(name || ''));
+}
+
 /** 영어판을 한 번 더 읽어볼 만한가. */
 function needsEnglishPass(rows) {
   return rows.some(function (r) {
     // 상호가 통째로 날아간 경우 (CU → '0')
-    if (looksLatin(r.lead)) return true;
+    if (!hasBrandName(r.raw) && looksLatin(r.lead)) return true;
     // 한글 이름 가운데에 영어가 끼어 깨진 경우 (이마트24 SMART… → 511^87)
     return latinBits(r.raw).some(looksGarbled);
   });
@@ -1458,7 +1602,10 @@ function repairLatinNames(rows, engText) {
     });
 
     // 2) 갈아 끼울 자리조차 없이 상호가 통째로 날아갔으면 앞에 붙인다.
-    if (!used && looksLatin(row.lead)) {
+    //    한글판이 이미 이름을 제대로 읽어냈으면 덮어쓰지 않는다. 줄 맨 앞의
+    //    아이콘 부스러기('ec', 'as')를 영어 상호로 오해해, 멀쩡한 '씨유'·
+    //    '지에스25' 를 'Smo'·'as' 로 갈아 치운 적이 있다.
+    if (!used && !hasBrandName(name) && looksLatin(row.lead)) {
       var lead = fixBrand(words[0]).split(' ')[0];   // emart24 → 이마트24
       var parts = name.split(' ');
       if (parts[0] && !/[\uAC00-\uD7A3\u3131-\u318E]/.test(parts[0])) parts.shift();

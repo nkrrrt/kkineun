@@ -1175,6 +1175,157 @@ test('날짜 머리글이 화면 밖으로 밀려난 건은 가져오지 않는�
   ]);
 });
 
+/* ------------------------------------------------------------------ */
+/* 가게 이름 다듬기                                                    */
+/* ------------------------------------------------------------------ */
+
+test('아이콘이 상호에 달라붙어도 알아본다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 가게 이름 왼쪽의 동그란 아이콘이 글자에 붙어 한 낱말이 된다. 띄어쓰기가
+  // 없으니 앞토막만 떼는 방식으로는 손을 못 댄다.
+  //   'CGV' → 'C' 는 '0ㅇ', 'G' 는 '6', 'V' 는 획이 갈라져 '\/'
+  assert.equal(win.tidyName('0ㅇ6\\/온라인예매'), 'CGV 온라인예매');
+
+  // 아는 상호가 통째로 맞을 때만 깎는다. 멀쩡한 이름은 그대로 둔다.
+  assert.equal(win.tidyName('24시어느마트'), '24시어느마트');
+  assert.equal(win.tidyName('0ㅇ어느가게'), '0ㅇ어느가게');
+});
+
+test('한글 낱자로 읽힌 알파벳을 되살린다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 한글판으로 읽으면 알파벳이 생김새가 닮은 낱자로 튀어나온다.
+  // 'T' → 'ㅣ'(작대기), 'C' → 'ㅇ'(동그라미), 'U' → '4'
+  assert.equal(win.tidyName('카카오 ㅣ 바이크'), '카카오T바이크');
+  assert.equal(win.tidyName('씨유(ㅇ4)'), 'CU');
+});
+
+test('(주) 앞에 붙은 찌꺼기를 걷어낸다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // '(주)' 는 상호가 어디서 시작하는지 알려주는 또렷한 표다. 그 앞에 짧은
+  // 토막만 남아 있으면 아이콘이 한글로 잘못 읽힌 것이다.
+  assert.equal(win.tidyName('도개 (주)어느상회'), '(주)어느상회');
+  assert.equal(win.tidyName('기 (주)어느콘'), '(주)어느콘');
+
+  // 앞이 길면 진짜 이름이므로 손대지 않는다
+  assert.equal(win.tidyName('어느마트 (주)어느상회'), '어느마트 (주)어느상회');
+});
+
+test('아는 상호 뒤에 붙은 글자 부스러기를 턴다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 금액 칸의 잔해가 상호 뒤에 따라 붙는다
+  assert.equal(win.tidyName('지에스25 zt NSH'), 'GS25');
+
+  // 지점 이름과 진짜 영단어는 남긴다 — 부스러기와 갈라 내야 한다
+  assert.equal(win.tidyName('이마트24 서초점'), '이마트24 서초점');
+  assert.equal(win.tidyName('GS25 THE FRESH'), 'GS25 THE FRESH');
+});
+
+test('금액 칸에 남은 부스러기를 이름으로 쓰지 않는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  const 이름 = JSON.parse(JSON.stringify(
+    win.parseBankText(토스어두운화면, 2026).map((r) => r.raw)));
+  assert.deepEqual(이름, [
+    '카드 캐시백',
+    'CGV 온라인예매 (일반)',   // 0ㅇ6\/온라인예매 _ + (일반)
+    '카카오T바이크',            // '님 4430 그.' 은 금액 줄의 잔해다
+    '어느형제들',               // 'a TE Is' 도 마찬가지
+    '(주)어느상회',             // '도개' 는 아이콘
+    '어느페이 컨텐츠',          // '© Toi 1 를' 은 잔해
+  ], '이름이 틀렸습니다: ' + 이름.join(' | '));
+});
+
+test('아는 상호가 통째로 잡히면 그것으로 끝낸다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  const 이름 = JSON.parse(JSON.stringify(
+    win.parseBankText(토스어두운화면2, 2026).map((r) => r.raw)));
+  assert.deepEqual(이름, [
+    '카드 캐시백',
+    'CU',              // '가나동전 므그-ㅁ' 은 뭉개진 지점 이름이라 버린다
+    '카카오T바이크',    // 주문번호 '1943072' 가 이름에 끼면 안 된다
+    'GS25',
+    '(주)어느콘',
+  ], '이름이 틀렸습니다: ' + 이름.join(' | '));
+});
+
+/**
+ * 같은 어두운 화면을 영어판으로 읽힌 결과. 한글을 다 부수는 대신 '(CU)' 는
+ * 제대로 읽는다. 한글판이 이미 상호를 알아본 자리를 이것이 덮어쓰면 안 된다.
+ */
+const 토스어두운화면2_영어판 = `& 07 © zk
+wr 13:14 180207
+®:
+cevx2gfeloioj.  -30,000&4
+2514] 179,707¢
+13:14
+79 262
+. FI= FH A|EH +300<!
+20:07 199,807%
+ec M=(CU) } °
+Smo 18,4009
+Cr —=0 181407¢
+20:07
+— 7/7 THo|3
+v amor =- -1,2603
+1943072
+19:12
+as X|of|A25 zt NSH -1,950%
+11:23 1962022
+[} (Z)Ol=3 = -4,180¢
+11:20 200202`;
+
+test('한글판이 알아본 상호를 영어판이 덮어쓰지 않는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 줄 맨 앞의 아이콘 부스러기('ec', 'as')를 영어 상호로 오해해, 멀쩡히
+  // 읽어낸 CU·GS25 를 'Smo'·'as' 로 갈아 치운 적이 있다.
+  const rows = win.repairLatinNames(
+    win.parseBankText(토스어두운화면2, 2026), 토스어두운화면2_영어판);
+  const 이름 = JSON.parse(JSON.stringify(rows.map((r) => r.raw)));
+  assert.deepEqual(이름,
+    ['카드 캐시백', 'CU', '카카오T바이크', 'GS25', '(주)어느콘'],
+    '이름이 틀렸습니다: ' + 이름.join(' | '));
+});
+
+test('상호가 이미 잡혔으면 영어판을 다시 읽지 않는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 두 번째로 읽는 데 시간이 꽤 걸린다. 얻을 것이 없으면 하지 않는다.
+  assert.equal(win.needsEnglishPass(win.parseBankText(토스어두운화면2, 2026)), false);
+  assert.equal(win.needsEnglishPass(win.parseBankText(토스어두운화면, 2026)), false);
+});
+
+test('주문번호가 이름 자리에 끼어들지 않는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 주문번호가 이름 밑에 한 줄로 따로 떨어져 나온다. 자릿수가 커서 금액으로도
+  // 안 세지는데, 그렇다고 이름도 아니다. 상호를 통째로 못 읽어 기댈 것이 없는
+  // 이 상황에서도 숫자 덩어리만은 이름에서 빼야 한다.
+  const 화면 = `9월 2일
+
+xy                       -1,200원
+9184730
+14:22                    50,000원`;
+  const rows = win.parseBankText(화면, 2026);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].amount, 1200);
+  assert.equal(rows[0].raw, 'xy', '이름이 틀렸습니다: ' + rows[0].raw);
+});
+
 test('한 번 고쳐준 이름은 다음부터 알아서 바뀐다', { skip }, async () => {
   const { win } = openApp();
   await wait(200);

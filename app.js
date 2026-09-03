@@ -1104,6 +1104,28 @@ function recallName(text) {
   return (key && all[key]) || text;
 }
 
+/**
+ * 여러 줄로 잘린 가게 이름을 잇는다.
+ *
+ * 화면이 좁으면 상호가 중간에서 잘려 다음 줄로 넘어간다.
+ *   이마트24 SMART머쉬룸하우
+ *   스점
+ * 그냥 띄어 이으면 '…머쉬룸하우 스점' 이 되어 어색하다. 다만 아무 때나
+ * 붙이면 '어느 바이크' 와 '어느페이' 처럼 원래 따로인 것까지 들러붙는다.
+ * 그래서 '…점' 으로 끝나는 짧은 한글 토막일 때만 붙인다 — 잘린 지점 표시로
+ * 이만큼 믿을 만한 것이 없다.
+ */
+function joinName(parts) {
+  var out = '';
+  parts.forEach(function (part, i) {
+    var 잘린꼬리 = i > 0 && part.length <= 3
+      && /^[\uAC00-\uD7A3]+점$/.test(part)
+      && /[\uAC00-\uD7A3]$/.test(out);
+    out += (out && !잘린꼬리 ? ' ' : '') + part;
+  });
+  return out;
+}
+
 /** 한 건에서 금액·이름을 뽑는다. 못 뽑으면 null. */
 function buildRow(buffer, year, month, day) {
   if (!buffer.length || !month || !day) return null;
@@ -1144,7 +1166,7 @@ function buildRow(buffer, year, month, day) {
 
   if (!picked) return null;
 
-  var name = cleaned.join(' ').slice(0, 60);
+  var name = joinName(cleaned).slice(0, 60);
   return {
     date: isoFrom(year, month, day),
     kind: picked.income ? 'income' : 'expense',
@@ -1288,20 +1310,52 @@ function needsEnglishPass(rows) {
 }
 
 /**
- * 영어판에서 '금액 → 그 줄 맨 앞의 영어 낱말' 을 뽑는다.
- *
- * 영어판은 '원'을 숫자로 잘못 읽어 -4,190원이 '4,1902'가 되기도 한다.
- * 그래서 금액은 딱 맞추지 않고 앞자리가 같은지로 본다.
+ * 이름 안에서 한글이 아닌 덩어리들. '이마트24' 의 '24' 같은 것도 함께 걸린다.
  */
-function latinLeads(text) {
+function latinBits(name) {
+  return String(name || '').match(/[^\uAC00-\uD7A3\u3131-\u318E\s]{2,}/g) || [];
+}
+
+/**
+ * 깨져 보이는 덩어리인가.
+ *
+ * 그냥 숫자('이마트24' 의 24)나 온전한 영어 낱말(emart24, GS25)은 멀쩡한
+ * 것이니 손대지 않는다. 'SMART' 가 '511^87' 로 읽힌 것처럼 글자와 기호가
+ * 뒤섞인 것만 고칠 거리로 본다.
+ */
+function looksGarbled(bit) {
+  if (/^\d+$/.test(bit)) return false;
+  if (/^[A-Za-z][A-Za-z0-9]*$/.test(bit)) return false;
+  return true;
+}
+
+/** 영어판을 한 번 더 읽어볼 만한가. */
+function needsEnglishPass(rows) {
+  return rows.some(function (r) {
+    // 상호가 통째로 날아간 경우 (CU → '0')
+    if (looksLatin(r.lead)) return true;
+    // 한글 이름 가운데에 영어가 끼어 깨진 경우 (이마트24 SMART… → 511^87)
+    return latinBits(r.raw).some(looksGarbled);
+  });
+}
+
+/**
+ * 영어판에서 '금액 → 그 줄의 영어 낱말들' 을 뽑는다.
+ *
+ * 영어판은 '원'을 숫자로 잘못 읽어 -3,500원이 '3,500%' 가 되기도 한다.
+ * 그래서 금액은 딱 맞추지 않고 앞자리가 같은지로 본다. 낱말은 영어 글자가
+ * 두 자 이상 이어진 것만 쓴다 — 'l2' 같은 부스러기를 이름에 넣으면 안 된다.
+ */
+function latinWords(text) {
   var map = [];
   String(text || '').split('\n').forEach(function (line) {
-    var words = line.match(/[A-Za-z][A-Za-z0-9&.'\-]*/g) || [];
+    var words = (line.match(/[A-Za-z][A-Za-z0-9&.'\-]*/g) || [])
+      .filter(function (w) { return /[A-Za-z]{2}/.test(w); });
     var nums = line.match(/\d[\d,.]*/g) || [];
     if (!words.length || !nums.length) return;
     nums.forEach(function (n) {
       var digits = n.replace(/\D/g, '');
-      if (digits.length >= 3) map.push({ digits: digits, word: words[0] });
+      if (digits.length >= 3) map.push({ digits: digits, words: words });
     });
   });
   return map;
@@ -1309,31 +1363,40 @@ function latinLeads(text) {
 
 /** 한글판 뼈대에 영어판에서 읽은 상호를 얹는다. */
 function repairLatinNames(rows, engText) {
-  var leads = latinLeads(engText);
-  if (!leads.length) return rows;
+  var found = latinWords(engText);
+  if (!found.length) return rows;
 
   rows.forEach(function (row) {
-    if (!looksLatin(row.lead)) return;          // 한글 상호는 한글판이 더 낫다
-
     var want = String(row.amount);
-    var hit = null;
-    for (var i = 0; i < leads.length; i++) {
-      // '4190' 을 '41902'(원이 2로 읽힌 것) 안에서도 찾는다
-      if (leads[i].digits.indexOf(want) === 0) { hit = leads[i].word; break; }
+    var words = null;
+    for (var i = 0; i < found.length; i++) {
+      // '3500' 을 '3500'(원이 %로 읽혀 떨어져 나간 것) 안에서도 찾는다
+      if (found[i].digits.indexOf(want) === 0) { words = found[i].words; break; }
     }
-    if (!hit) return;
+    if (!words || !words.length) return;
 
-    // 아는 상호면 제대로 된 이름으로 (emart24 → 이마트24)
-    var lead = fixBrand(hit).split(' ')[0];
+    var used = 0;
+    var name = String(row.raw || '');
 
-    // 한글판 이름의 맨 앞이 한글이 아니면 그 자리를 영어 상호로 바꾸고,
-    // 이미 떨어져 나갔으면 앞에 붙인다.
-    var parts = String(row.raw || '').split(' ');
-    if (parts.length && parts[0] && !/[\uAC00-\uD7A3\u3131-\u318E]/.test(parts[0])) parts.shift();
-    // 한글판이 이미 같은 상호를 읽어냈으면 두 번 붙이지 않는다
-    if (parts[0] === lead) parts.shift();
-    var name = tidyName((lead + ' ' + parts.join(' ')).trim()).slice(0, 60);
-    if (!name) return;
+    // 1) 이름 속 깨진 덩어리를 영어판이 읽은 낱말로 갈아 끼운다.
+    //    한글 상호는 한글판이 옳으므로 건드리지 않는다.
+    name = name.replace(/[^\uAC00-\uD7A3\u3131-\u318E\s]{2,}/g, function (bit) {
+      if (!looksGarbled(bit) || used >= words.length) return bit;
+      return words[used++];
+    });
+
+    // 2) 갈아 끼울 자리조차 없이 상호가 통째로 날아갔으면 앞에 붙인다.
+    if (!used && looksLatin(row.lead)) {
+      var lead = fixBrand(words[0]).split(' ')[0];   // emart24 → 이마트24
+      var parts = name.split(' ');
+      if (parts[0] && !/[\uAC00-\uD7A3\u3131-\u318E]/.test(parts[0])) parts.shift();
+      // 한글판이 이미 같은 상호를 읽어냈으면 두 번 붙이지 않는다
+      if (parts[0] === lead) parts.shift();
+      name = (lead + ' ' + parts.join(' ')).trim();
+    }
+
+    name = tidyName(name).slice(0, 60);
+    if (!name || name === row.raw) return;
 
     row.raw = name;
     row.memo = recallName(name);

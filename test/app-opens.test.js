@@ -1007,6 +1007,54 @@ emart24 MxF -1,80081
   assert.equal(rows[0].memo, '이마트24 서초점', '이름이 겹쳤습니다: ' + rows[0].memo);
 });
 
+/**
+ * 실제 화면(다크모드, 이마트24 SMART머쉬룸하우스점)을 읽힌 그대로.
+ * 앞의 것들과 다른 점이 셋이다 — 이름이 한글로 시작하고, 영어가 가운데에
+ * 끼어 있고, 화면이 좁아 이름이 세 줄로 잘렸다.
+ */
+const 실물_한글판 = `8월 20일
+e 이마트24
+511^87머쉬룸하우 -3,500원
+스점             2,245원
+08:07`;
+
+const 실물_영어판 = `8% 20
+e O|OIE 24
+SMART#|25l2 -3,500%
+AX 2,245%)
+08:07`;
+
+test('한글로 시작해 영어가 가운데 낀 이름도 살린다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  let rows = win.parseBankText(실물_한글판, 2026);
+  assert.equal(rows.length, 1, '건수가 틀립니다');
+  assert.equal(rows[0].amount, 3500, '잔액 2,245원을 금액으로 잡았습니다');
+  assert.equal(rows[0].date, '2026-08-20');
+
+  // 이름 맨 앞이 한글이라도, 가운데가 깨졌으면 영어판을 더 읽어야 한다
+  assert.equal(win.needsEnglishPass(rows), true);
+
+  rows = win.repairLatinNames(rows, 실물_영어판);
+  assert.equal(rows[0].memo, '이마트24 SMART머쉬룸하우스점',
+    '이름이 틀렸습니다: ' + rows[0].memo);
+});
+
+test('세 줄로 잘린 이름을 도로 잇는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // '…머쉬룸하우' + '스점' → 붙여야 한다
+  assert.equal(win.joinName(['이마트24', 'SMART머쉬룸하우', '스점']),
+    '이마트24 SMART머쉬룸하우스점');
+
+  // 원래 따로인 것까지 들러붙으면 안 된다. '어느페이' 는 결제 수단이지
+  // 상호의 뒷토막이 아니다.
+  assert.equal(win.joinName(['어느 바이크', '어느페이']), '어느 바이크 어느페이');
+  assert.equal(win.joinName(['무지개주유소']), '무지개주유소');
+});
+
 test('한 번 고쳐준 이름은 다음부터 알아서 바뀐다', { skip }, async () => {
   const { win } = openApp();
   await wait(200);

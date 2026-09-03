@@ -914,6 +914,99 @@ test('상호를 아예 못 읽었으면 없는 이름을 지어내지 않는다'
   assert.equal(win.tidyName('04 판교점'), '판교점');
 });
 
+/**
+ * 아래 두 덩어리는 같은 화면 하나를 언어만 바꿔 읽힌 결과 그대로다.
+ * 한글판은 CU 를 '0' 으로, GS25 를 '6525' 로 읽었고, 영어판은 그 둘을
+ * 제대로 읽는 대신 한글을 다 부쉈다(판교점 → ETH, 날짜 줄도 못 읽는다).
+ */
+const 한글판 = `9월 2일
+
+0 판교점                 -4,190원
+18:29                    235,875원
+6525 수원점              -2,350원
+18:09                    231,685원
+세븐일레븐 역삼점         -6,200원
+18:00                    225,485원`;
+
+const 영어판 = `9g 29!
+CU ETH -4,1902
+18:29 235,8758
+GS25 XH -2,35081
+18:09 231,6858
+Neale ous -6,2008
+18:00 225,4858`;
+
+test('영어판을 더 읽어야 할 때를 가려낸다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 영어 상호가 섞였으면 한 번 더 읽는다
+  assert.equal(win.needsEnglishPass(win.parseBankText(한글판, 2026)), true);
+
+  // 한글 상호뿐이면 다시 읽지 않는다 — 괜히 느려질 이유가 없다
+  const 한글만 = `9월 2일
+
+가나시장상인회            -200원
+16:40                    259,565원
+무지개주유소             -50,000원
+15:58                    252,765원`;
+  assert.equal(win.needsEnglishPass(win.parseBankText(한글만, 2026)), false);
+});
+
+test('영어판에서 읽은 상호를 한글판에 얹는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  const rows = win.repairLatinNames(win.parseBankText(한글판, 2026), 영어판);
+  const 이름 = JSON.parse(JSON.stringify(rows.map((r) => r.memo)));
+  const 금액 = JSON.parse(JSON.stringify(rows.map((r) => r.amount)));
+
+  assert.deepEqual(금액, [4190, 2350, 6200], '금액이 흔들렸습니다');
+  assert.deepEqual(이름, ['CU 판교점', 'GS25 수원점', '세븐일레븐 역삼점'],
+    '이름이 틀렸습니다: ' + 이름.join(' | '));
+});
+
+test('한글 상호는 영어판이 덮어쓰지 않는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 영어판은 '세븐일레븐 역삼점'을 'Neale ous' 로 읽었다. 한글판이 옳으므로
+  // 그대로 두어야 한다. 잘못 얹으면 멀쩡한 이름이 망가진다.
+  const rows = win.repairLatinNames(win.parseBankText(한글판, 2026), 영어판);
+  const 세븐 = rows.find((r) => r.amount === 6200);
+  assert.equal(세븐.memo, '세븐일레븐 역삼점');
+  assert.ok(!/Neale/.test(세븐.memo), '한글 이름을 영어 찌꺼기로 덮었습니다');
+});
+
+test('영어판이 엉뚱해도 금액과 날짜는 한글판 것을 쓴다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  const 엉망 = 'qwer asdf zxcv\n!!!! ????';
+  const rows = win.repairLatinNames(win.parseBankText(한글판, 2026), 엉망);
+  assert.deepEqual(JSON.parse(JSON.stringify(rows.map((r) => r.amount))), [4190, 2350, 6200]);
+  assert.deepEqual(JSON.parse(JSON.stringify(rows.map((r) => r.date))),
+    ['2026-09-02', '2026-09-02', '2026-09-02']);
+});
+
+test('같은 상호를 두 번 붙이지 않는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 한글판이 이미 'emart24 서초점' 을 읽어 '이마트24 서초점' 이 된 상태에서
+  // 영어판도 emart24 를 읽어 왔다. 그대로 앞에 붙이면 이름이 두 번 겹친다.
+  const 한글 = `9월 2일
+
+emart24 서초점            -1,800원
+17:40                     223,685원`;
+  const 영어 = `9g 29!
+emart24 MxF -1,80081
+17:40 223,685`;
+
+  const rows = win.repairLatinNames(win.parseBankText(한글, 2026), 영어);
+  assert.equal(rows[0].memo, '이마트24 서초점', '이름이 겹쳤습니다: ' + rows[0].memo);
+});
+
 test('한 번 고쳐준 이름은 다음부터 알아서 바뀐다', { skip }, async () => {
   const { win } = openApp();
   await wait(200);

@@ -1110,6 +1110,7 @@ function buildRow(buffer, year, month, day) {
 
   var picked = null;
   var cleaned = [];
+  var lead = '';
 
   buffer.forEach(function (line) {
     // 빼기 부호는 금액에서 멀리 떨어져 인식되기도 한다. 줄 전체를 보고 판단한다.
@@ -1130,9 +1131,15 @@ function buildRow(buffer, year, month, day) {
       rest = rest.split(found.text).join(' ');
     });
 
+    // 다듬기 전 모습도 남겨 둔다. 맨 앞이 한글이 아니면 영어 상호일 수
+    // 있는데, 다듬고 나면 그 흔적이 사라져 알아볼 길이 없어진다.
+    var raw = rest.replace(/\s+/g, ' ').trim();
     rest = tidyName(rest);
     // 시각의 콜론이 날아가 '1133' 같은 숫자만 남은 줄은 이름이 아니다
-    if (rest.length > 1 && !/^\d{3,4}$/.test(rest)) cleaned.push(rest);
+    if (rest.length > 1 && !/^\d{3,4}$/.test(rest)) {
+      cleaned.push(rest);
+      if (!lead && raw) lead = raw.split(' ')[0];
+    }
   });
 
   if (!picked) return null;
@@ -1143,7 +1150,8 @@ function buildRow(buffer, year, month, day) {
     kind: picked.income ? 'income' : 'expense',
     amount: picked.value,
     memo: recallName(name),     // 전에 고쳐준 적 있으면 그 이름으로
-    raw: name
+    raw: name,
+    lead: lead                  // 영어판을 한 번 더 읽을지 정하는 데 쓴다
   };
 }
 
@@ -1192,7 +1200,21 @@ function pad2(n) { return (n < 10 ? '0' : '') + n; }
  * 이 기능을 처음 누를 때만 받고, 그 뒤로는 폰에 남아 다시 받지 않는다.
  */
 var OCR_SRC = 'https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js';
-var ocr = { loading: null, worker: null };
+var ocr = { loading: null, worker: null, eng: null, engLoading: null };
+
+/**
+ * 영어 이름을 다시 읽을 때만 쓰는 일꾼. 처음 필요할 때 만든다.
+ * 영어 자료는 한글판이 이미 함께 받아 둔 것이라 더 내려받지 않는다.
+ */
+function engWorker() {
+  if (ocr.eng) return Promise.resolve(ocr.eng);
+  if (ocr.engLoading) return ocr.engLoading;
+  ocr.engLoading = Tesseract.createWorker('eng').then(function (w) {
+    ocr.eng = w;
+    return w;
+  });
+  return ocr.engLoading;
+}
 
 function loadOcr() {
   if (window.Tesseract) return Promise.resolve();
@@ -1242,6 +1264,84 @@ function prepShot(file) {
   });
 }
 
+/**
+ * 영어 이름은 한 번 더, 영어만으로 읽는다.
+ *
+ * 같은 화면을 언어별로 읽혀 비교해봤다.
+ *   한글+영어 : 날짜 · 한글 상호 · 금액은 정확. 그런데 CU → '0', GS25 → '6525'
+ *   영어만    : CU · GS25 · emart24 모두 정확. 대신 한글이 다 부서지고
+ *               (판교점 → ETH) 날짜 줄도 못 읽는다(9월 2일 → 9g 29!)
+ *
+ * 그래서 둘 다 쓴다. 뼈대는 한글판으로 세우고, 영어 상호만 영어판에서
+ * 가져온다. 한글 상호뿐인 화면에서는 두 번째로 읽지 않으니 그때는 느려지지
+ * 않는다. 두 판을 잇는 열쇠는 금액이다 — 양쪽 다 숫자는 제대로 읽는다.
+ */
+
+/** 한글이 하나도 없는 토막. 이런 것이 이름 맨 앞에 있으면 영어 상호일 수 있다. */
+function looksLatin(text) {
+  return !!text && !/[\uAC00-\uD7A3\u3131-\u318E]/.test(text) && /[0-9A-Za-z]/.test(text);
+}
+
+/** 영어판을 한 번 더 읽어볼 만한가. */
+function needsEnglishPass(rows) {
+  return rows.some(function (r) { return looksLatin(r.lead); });
+}
+
+/**
+ * 영어판에서 '금액 → 그 줄 맨 앞의 영어 낱말' 을 뽑는다.
+ *
+ * 영어판은 '원'을 숫자로 잘못 읽어 -4,190원이 '4,1902'가 되기도 한다.
+ * 그래서 금액은 딱 맞추지 않고 앞자리가 같은지로 본다.
+ */
+function latinLeads(text) {
+  var map = [];
+  String(text || '').split('\n').forEach(function (line) {
+    var words = line.match(/[A-Za-z][A-Za-z0-9&.'\-]*/g) || [];
+    var nums = line.match(/\d[\d,.]*/g) || [];
+    if (!words.length || !nums.length) return;
+    nums.forEach(function (n) {
+      var digits = n.replace(/\D/g, '');
+      if (digits.length >= 3) map.push({ digits: digits, word: words[0] });
+    });
+  });
+  return map;
+}
+
+/** 한글판 뼈대에 영어판에서 읽은 상호를 얹는다. */
+function repairLatinNames(rows, engText) {
+  var leads = latinLeads(engText);
+  if (!leads.length) return rows;
+
+  rows.forEach(function (row) {
+    if (!looksLatin(row.lead)) return;          // 한글 상호는 한글판이 더 낫다
+
+    var want = String(row.amount);
+    var hit = null;
+    for (var i = 0; i < leads.length; i++) {
+      // '4190' 을 '41902'(원이 2로 읽힌 것) 안에서도 찾는다
+      if (leads[i].digits.indexOf(want) === 0) { hit = leads[i].word; break; }
+    }
+    if (!hit) return;
+
+    // 아는 상호면 제대로 된 이름으로 (emart24 → 이마트24)
+    var lead = fixBrand(hit).split(' ')[0];
+
+    // 한글판 이름의 맨 앞이 한글이 아니면 그 자리를 영어 상호로 바꾸고,
+    // 이미 떨어져 나갔으면 앞에 붙인다.
+    var parts = String(row.raw || '').split(' ');
+    if (parts.length && parts[0] && !/[\uAC00-\uD7A3\u3131-\u318E]/.test(parts[0])) parts.shift();
+    // 한글판이 이미 같은 상호를 읽어냈으면 두 번 붙이지 않는다
+    if (parts[0] === lead) parts.shift();
+    var name = tidyName((lead + ' ' + parts.join(' ')).trim()).slice(0, 60);
+    if (!name) return;
+
+    row.raw = name;
+    row.memo = recallName(name);
+  });
+
+  return rows;
+}
+
 /** 사진 여러 장을 차례로 읽어 내역 목록을 만든다. */
 function readShots(files, onStep) {
   var found = [];
@@ -1259,17 +1359,28 @@ function readShots(files, onStep) {
       files.forEach(function (file, i) {
         chain = chain.then(function () {
           onStep((i + 1) + ' / ' + files.length + '장째 읽는 중…', i / files.length);
+          var shot = null;
           return prepShot(file)
-            .then(function (canvas) { return ocr.worker.recognize(canvas); })
+            .then(function (canvas) { shot = canvas; return ocr.worker.recognize(canvas); })
             .then(function (res) {
-              parseBankText(res.data.text, state.month ? Number(state.month.slice(0, 4)) : 0)
-                .forEach(function (row) {
-                  // 화면을 겹쳐 찍었을 때 같은 건이 두 번 들어오지 않게
-                  var key = [row.date, row.kind, row.amount, row.memo].join('|');
-                  if (seen[key]) return;
-                  seen[key] = true;
-                  found.push(row);
-                });
+              var year = state.month ? Number(state.month.slice(0, 4)) : 0;
+              var rows = parseBankText(res.data.text, year);
+              // 영어 상호가 섞여 있을 때만 영어판으로 한 번 더 읽는다
+              if (!needsEnglishPass(rows)) return rows;
+              onStep('영어로 된 가게 이름을 다시 읽는 중…', (i + 0.5) / files.length);
+              return engWorker()
+                .then(function (w) { return w.recognize(shot); })
+                .then(function (eng) { return repairLatinNames(rows, eng.data.text); })
+                .catch(function () { return rows; });   // 실패해도 한글판은 살린다
+            })
+            .then(function (rows) {
+              rows.forEach(function (row) {
+                // 화면을 겹쳐 찍었을 때 같은 건이 두 번 들어오지 않게
+                var key = [row.date, row.kind, row.amount, row.memo].join('|');
+                if (seen[key]) return;
+                seen[key] = true;
+                found.push(row);
+              });
             });
         });
       });

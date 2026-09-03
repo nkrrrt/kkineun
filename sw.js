@@ -12,7 +12,7 @@
  *  - index.html 은 그 번호들을 담고 있는 문서다. 이게 낡으면 낡은 번호를 가리켜
  *    모든 게 낡는다. 그래서 이것만은 늘 새로 받아온다.
  */
-var CACHE = 'kkineun-20260902j';
+var CACHE = 'kkineun-20260903a';
 
 self.addEventListener('install', function () { self.skipWaiting(); });
 

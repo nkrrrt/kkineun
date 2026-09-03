@@ -841,6 +841,79 @@ test('SK·GS 처럼 진짜 상호는 남긴다', { skip }, async () => {
   assert.equal(win.tidyName('CU 어느점'), 'CU 어느점', '진짜 상호를 지웠습니다');
 });
 
+/**
+ * 편의점처럼 영어로 쓰인 상호는 글자 인식이 유독 잘 틀린다.
+ * 아래 왼쪽 글자는 지어낸 것이 아니라, 실제로 화면을 여러 배율로 읽혀
+ * 나온 그대로다(CU → Cu · 0 · 04, GS25 → 6525 · @525).
+ */
+test('잘못 읽힌 편의점 이름을 바로잡는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  assert.equal(win.tidyName('Cu 판교점'), 'CU 판교점', 'Cu 를 찌꺼기로 보고 지웠습니다');
+  assert.equal(win.tidyName('CU 판교점'), 'CU 판교점');
+  assert.equal(win.tidyName('6525 수원점'), 'GS25 수원점');
+  assert.equal(win.tidyName('@525 수원점'), 'GS25 수원점');
+  assert.equal(win.tidyName('GS 25 수원점'), 'GS25 수원점', '띄어 읽힌 것도 붙여야 합니다');
+  assert.equal(win.tidyName('~ Cu 판교점'), 'CU 판교점', '아이콘을 떼고 나서 상호를 못 알아봤습니다');
+  assert.equal(win.tidyName('emart24 서초점'), '이마트24 서초점');
+  assert.equal(win.tidyName('MlNISTOP 신촌점'), '미니스톱 신촌점');
+  assert.equal(win.tidyName('7ELEVEN 역삼점'), '세븐일레븐 역삼점');
+  assert.equal(win.tidyName('5TARBUCK5 광화문점'), '스타벅스 광화문점');
+});
+
+test('상호와 비슷할 뿐인 이름은 건드리지 않는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // CU 로 시작하지만 다른 낱말이다. 글자가 더 붙어 있으면 상호가 아니다.
+  assert.equal(win.tidyName('CUBE 스튜디오'), 'CUBE 스튜디오');
+  assert.equal(win.tidyName('CU25 어쩌구'), 'CU25 어쩌구');
+
+  // 아이콘 찌꺼기는 여전히 떼어내야 한다
+  assert.equal(win.tidyName('Ky 카드 캐시백'), '카드 캐시백');
+  assert.equal(win.tidyName('il  회비'), '회비');
+  assert.equal(win.tidyName('oO 한전(홍길동)'), '한전(홍길동)');
+
+  // 한글 상호는 잘 읽히므로 손대지 않는다
+  assert.equal(win.tidyName('가나시장상인회'), '가나시장상인회');
+  assert.equal(win.tidyName('무지개주유소'), '무지개주유소');
+});
+
+test('편의점이 섞인 화면을 통째로 읽어도 이름이 살아남는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 폰 화면 크기 그대로 읽힌 모양
+  const 화면 = `9월 2일
+
+Cu 판교점               -4,190원
+18:29                  235,875원
+6525 수원점             -2,350원
+18:09                  231,685원
+emart24 서초점          -1,800원
+17:40                  223,685원`;
+
+  const rows = win.parseBankText(화면, 2026);
+  const 이름 = JSON.parse(JSON.stringify(rows.map((r) => r.memo)));
+  const 금액 = JSON.parse(JSON.stringify(rows.map((r) => r.amount)));
+
+  assert.deepEqual(금액, [4190, 2350, 1800], '금액을 놓쳤습니다: ' + 금액.join(', '));
+  assert.deepEqual(이름, ['CU 판교점', 'GS25 수원점', '이마트24 서초점'],
+    '이름이 틀렸습니다: ' + 이름.join(' | '));
+});
+
+test('상호를 아예 못 읽었으면 없는 이름을 지어내지 않는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 1.5배로 키워 읽으면 CU 가 '0' 으로 아예 뭉개진다. 여기서 남은 것은
+  // 'C' 도 'U' 도 아니라 상호를 되살릴 길이 없다. 그럴 때는 지어내지 말고
+  // 남은 이름만 쓴다 — 한 번 고쳐 주면 그 다음부터는 기억한다.
+  assert.equal(win.tidyName('0 판교점'), '판교점');
+  assert.equal(win.tidyName('04 판교점'), '판교점');
+});
+
 test('한 번 고쳐준 이름은 다음부터 알아서 바뀐다', { skip }, async () => {
   const { win } = openApp();
   await wait(200);

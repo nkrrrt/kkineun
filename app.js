@@ -935,6 +935,106 @@ function hasName(line) {
 }
 
 /**
+ * 영어로 쓰인 상호는 글자 인식이 유독 잘 틀린다. 특히 편의점.
+ *
+ * 실제로 재봤다 — 폰 화면 크기 그대로, 1.25 · 1.5 · 1.75 · 2 · 2.5 · 3배까지.
+ *   CU   → Cu · 0 · 04        (어느 배율에서도 CU 로 읽힌 적이 없다)
+ *   GS25 → 6525 · @525        (G→6, S→5)
+ * 인식 설정(줄 나누는 방식, 사전 끄기)을 바꿔봐도 똑같았고, 크게 키우면
+ * 이름은 조금 나아지는 대신 내역이 통째로 빠지는 일이 생겼다. 그래서
+ * 읽는 쪽이 아니라 읽고 난 뒤에 이름만 바로잡기로 했다.
+ *
+ * 한글 상호는 잘 읽히므로, 영어가 섞인 것만 적어 둔다.
+ */
+var BRANDS = [
+  ['CU', ['CU']],
+  ['GS25', ['GS25']],
+  ['세븐일레븐', ['7ELEVEN', '7-ELEVEN', 'SEVENELEVEN']],
+  ['이마트24', ['emart24', 'e-mart24']],
+  ['미니스톱', ['MINISTOP']],
+  ['스토리웨이', ['STORYWAY']],
+  ['스타벅스', ['STARBUCKS']],
+  ['맥도날드', ['MCDONALD', 'MCDONALDS']],
+  ['버거킹', ['BURGERKING']],
+  ['서브웨이', ['SUBWAY']],
+  ['다이소', ['DAISO']],
+  ['올리브영', ['OLIVEYOUNG']],
+  ['홈플러스', ['HOMEPLUS']],
+  ['노브랜드', ['NOBRAND']],
+  ['KFC', ['KFC']],
+  ['S-OIL', ['SOIL', 'S-OIL']],
+  ['SK에너지', ['SK에너지']],
+  ['GS칼텍스', ['GS칼텍스']]
+];
+
+/**
+ * 글자 하나가 무엇으로 잘못 읽히는지. 눈으로 봐서 헷갈리는 것만 적었다.
+ * 넉넉하게 잡으면 엉뚱한 이름까지 상호로 바꿔버리므로 여기서는 인색한 편이 낫다.
+ */
+var LOOKALIKE = {
+  O: 'Oo0', I: 'Il1|', L: 'Ll1|', S: 'Ss5', G: 'Gg6@', Z: 'Zz2',
+  B: 'Bb8', A: 'Aa4', E: 'Ee3', T: 'Tt7', C: 'Cc(', U: 'UuVv',
+  D: 'Dd', N: 'Nn', M: 'Mm', R: 'Rr', K: 'Kk', F: 'Ff', P: 'Pp',
+  W: 'Ww', Y: 'Yy', H: 'Hh', V: 'Vv', X: 'Xx', Q: 'Qq', J: 'Jj',
+  '0': '0Oo', '1': '1Il|', '2': '2Zz', '3': '3Ee', '4': '4Aa',
+  '5': '5Ss', '6': '6Gg', '7': '7Tt', '8': '8Bb', '9': '9'
+};
+
+/** 상호 하나를 '이렇게 잘못 읽혔을 수도 있다'는 모양의 자로 바꾼다. */
+function brandRe(pattern) {
+  var out = '';
+  for (var i = 0; i < pattern.length; i++) {
+    var ch = pattern[i];
+    var up = ch.toUpperCase();
+    if (LOOKALIKE[up]) {
+      out += '[' + LOOKALIKE[up].replace(/[\\\]^-]/g, '\\$&') + ']';
+    } else if (/[\uAC00-\uD7A3]/.test(ch)) {
+      out += ch;                       // 한글은 그대로
+    } else {
+      out += '[' + ch.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&') + ']?';
+    }
+    if (i < pattern.length - 1) out += '[\\s.,]*';   // 'GS 25' 처럼 띄어져도
+  }
+  // 뒤에 영문·숫자가 더 붙으면 다른 낱말이다 (CU 와 CUBE 를 갈라 준다)
+  return new RegExp('^' + out + '(?![0-9A-Za-z])');
+}
+
+var BRAND_RES = null;
+
+function brandRules() {
+  if (BRAND_RES) return BRAND_RES;
+  BRAND_RES = [];
+  BRANDS.forEach(function (b) {
+    b[1].forEach(function (pattern) {
+      BRAND_RES.push({ name: b[0], re: brandRe(pattern) });
+    });
+  });
+  // 긴 것부터 맞춰 본다. 'CU' 가 먼저 걸려 'CU25' 를 놓치는 일이 없도록.
+  BRAND_RES.sort(function (a, b) { return b.re.source.length - a.re.source.length; });
+  return BRAND_RES;
+}
+
+/** 이름 맨 앞이 아는 상호처럼 보이면 제대로 된 이름으로 바꿔 준다. */
+function fixBrand(text) {
+  var v = String(text || '');
+  var rules = brandRules();
+  for (var i = 0; i < rules.length; i++) {
+    var m = v.match(rules[i].re);
+    if (m && m[0]) return (rules[i].name + ' ' + v.slice(m[0].length).trim()).trim();
+  }
+  return v;
+}
+
+/** 맨 앞 토막이 아는 상호인가. 찌꺼기로 보고 지워버리면 안 되는 것들이다. */
+function isBrandHead(head) {
+  var rules = brandRules();
+  for (var i = 0; i < rules.length; i++) {
+    if (rules[i].re.test(head)) return true;
+  }
+  return false;
+}
+
+/**
  * 가게 이름 앞에 붙은 아이콘 찌꺼기를 걷어낸다.
  *
  * 이름 왼쪽의 동그란 아이콘을 글자로 잘못 읽어 이런 것이 앞에 붙는다.
@@ -944,7 +1044,7 @@ function hasName(line) {
  * 처럼 모두 대문자인 것은 진짜 상호일 수 있어 남긴다.
  */
 function tidyName(text) {
-  var v = String(text || '').replace(/\s+/g, ' ').trim();
+  var v = fixBrand(String(text || '').replace(/\s+/g, ' ').trim());
 
   for (var i = 0; i < 2; i++) {
     var m = v.match(/^(\S{1,2})\s+(\S.*)$/);
@@ -952,8 +1052,9 @@ function tidyName(text) {
     var head = m[1];
     var 한글있음 = /[\uAC00-\uD7A3\u3131-\u318E]/.test(head);
     var 모두대문자 = /^[A-Z]{2}$/.test(head);
-    if (한글있음 || 모두대문자) break;
-    v = m[2];
+    // 'Cu' 처럼 잘못 읽힌 편의점 이름을 찌꺼기로 오해해 지우면 안 된다
+    if (한글있음 || 모두대문자 || isBrandHead(head)) break;
+    v = fixBrand(m[2]);   // 찌꺼기를 떼고 나면 상호가 드러나기도 한다
   }
 
   return v

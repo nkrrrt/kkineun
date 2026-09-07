@@ -561,7 +561,7 @@ function renderHero() {
   $('#stat-balance').textContent = signed(balance);
   $('#stat-income').textContent = '＋' + num(t.income);
   $('#stat-expense').textContent = '－' + num(t.expense);
-  $('#stat-saving').textContent = '저축 ' + num(t.saving || 0);
+  $('#stat-saving').textContent = num(t.saving || 0);
   $('#stat-balance-label').textContent =
     state.scope === 'all' ? '둘이 합쳐 남은 돈' : memberName(state.scope) + ' 님 남은 돈';
 }
@@ -770,8 +770,11 @@ function renderStats() {
       '<div class="name jua">' + escapeHtml(m.name) + '</div>' +
       '<div class="amt" style="font-weight:700; color: ' + (m.balance < 0 ? 'var(--expense)' : 'var(--income)') + '">' +
         signed(m.balance) + '원</div>' +
-      '<div class="nums muted amt"><span>수입 ' + won(m.income) + '</span><span>지출 ' + won(m.expense) + '</span>' +
-        (m.saving ? '<span>저축 ' + won(m.saving) + '</span>' : '') + '</div>';
+      '<div class="nums muted amt">' +
+        '<span><i>수입</i>' + won(m.income) + '</span>' +
+        '<span><i>지출</i>' + won(m.expense) + '</span>' +
+        (m.saving ? '<span><i>저축</i>' + won(m.saving) + '</span>' : '') +
+      '</div>';
     splits.appendChild(row);
   });
 

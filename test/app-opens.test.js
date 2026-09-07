@@ -1508,7 +1508,7 @@ test('위쪽 큰 숫자에 저축이 따로 나온다', { skip }, async () => {
   win.renderHero();
 
   assert.equal(doc.getElementById('stat-expense').textContent, '－50,000');
-  assert.equal(doc.getElementById('stat-saving').textContent, '저축 300,000');
+  assert.equal(doc.getElementById('stat-saving').textContent, '300,000');
   // 저축도 통장에서 나간 돈이라 남은 돈에서는 빠진다
   assert.equal(doc.getElementById('stat-balance').textContent, '+650,000');
 });

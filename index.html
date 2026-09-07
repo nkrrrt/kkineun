@@ -35,7 +35,7 @@
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <link rel="stylesheet" href="styles.css?v=20260907b" />
+  <link rel="stylesheet" href="styles.css?v=20260907c" />
 </head>
 <body>
 
@@ -98,9 +98,18 @@
         <div class="hero-value bhs amt" id="stat-balance">0</div>
       </div>
       <div class="hero-pills">
-        <div class="hero-pill amt" id="stat-income" style="background: var(--mint)">＋0</div>
-        <div class="hero-pill amt" id="stat-expense" style="background: var(--coral)">－0</div>
-        <div class="hero-pill amt" id="stat-saving" style="background: var(--sky)">저축 0</div>
+        <div class="hero-stat">
+          <span class="hero-tag">수입</span>
+          <span class="hero-pill amt" id="stat-income" style="background: var(--mint)">＋0</span>
+        </div>
+        <div class="hero-stat">
+          <span class="hero-tag">지출</span>
+          <span class="hero-pill amt" id="stat-expense" style="background: var(--coral)">－0</span>
+        </div>
+        <div class="hero-stat">
+          <span class="hero-tag">저축</span>
+          <span class="hero-pill amt" id="stat-saving" style="background: var(--sky)">0</span>
+        </div>
       </div>
     </div>
   </div>
@@ -425,7 +434,7 @@
 </dialog>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="config.js?v=20260907b"></script>
-<script src="app.js?v=20260907b"></script>
+<script src="config.js?v=20260907c"></script>
+<script src="app.js?v=20260907c"></script>
 </body>
 </html>

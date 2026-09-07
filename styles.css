@@ -163,8 +163,13 @@ button { cursor: pointer; }
 .hero-row { display: flex; align-items: flex-end; justify-content: space-between; margin-top: 9px; gap: 10px; }
 .hero-label { font-size: 11px; font-weight: 700; color: var(--muted); }
 .hero-value { font-size: 28px; line-height: 1.15; margin-top: 1px; }
-.hero-pills { display: flex; flex-direction: column; gap: 5px; padding-bottom: 3px; flex: 0 0 auto; }
-.hero-pill { border: 2px solid var(--edge); border-radius: 999px; padding: 2px 10px; font-size: 11.5px; font-weight: 700; }
+.hero-pills { display: grid; gap: 5px; padding-bottom: 3px; flex: 0 0 auto; }
+/* 이름표를 알약 왼편에 두고, 알약은 오른쪽 끝에 맞춰 세로로 줄을 세운다 */
+.hero-stat { display: grid; grid-template-columns: auto auto; align-items: center;
+  justify-content: end; gap: 7px; }
+.hero-tag { font-size: 11px; font-weight: 700; color: var(--muted); }
+.hero-pill { border: 2px solid var(--edge); border-radius: 999px; padding: 2px 10px;
+  font-size: 11.5px; font-weight: 700; text-align: right; }
 
 /* ── 탭 화면 ── */
 .screens {
@@ -193,7 +198,16 @@ button { cursor: pointer; }
 .cal-cell.month-start { background: var(--butter); }
 .cal-cell.today { background: var(--mint); }
 .cal-cell[aria-selected='true'] { background: var(--lilac); border-color: var(--edge); box-shadow: 2px 2px 0 var(--drop); }
-.cal-cell .cash { font-size: 9px; font-weight: 700; line-height: 1.1; letter-spacing: -0.4px; }
+/* 숫자와 단위가 갈라져 '+595 / 만' 처럼 두 줄이 되면 읽기 나쁘다. 칸보다
+   길면 줄바꿈 대신 글자를 조금 좁혀서 한 줄에 담는다. */
+.cal-cell .cash { font-size: 9px; font-weight: 700; line-height: 1.1; letter-spacing: -0.4px;
+  white-space: nowrap; max-width: 100%; }
+/* 아주 좁은 폰(320px 무렵)에서는 칸이 34px밖에 안 돼 '−14.5만'이 잘린다.
+   줄을 바꾸느니 글씨를 한 호 줄여 한 줄에 담는다. */
+@media (max-width: 360px) {
+  .cal-cell { padding-left: 1px; padding-right: 1px; }
+  .cal-cell .cash { font-size: 8px; letter-spacing: -0.5px; }
+}
 /* 밝은 파스텔로 칠한 칸에서는 글자를 어둡게 (특히 다크 모드에서 안 읽힘) */
 .cal-cell.month-start, .cal-cell.today, .cal-cell[aria-selected='true'] {
   --income: #0f7a52; --expense: #c02b3f; --saving: #274a9e;
@@ -233,9 +247,14 @@ button { cursor: pointer; }
 .member-split .name { font-weight: 700; }
 /* 수입·지출·저축 세 칸이라 왼쪽 칸만으로는 좁다. 줄 전체를 쓰고, 숫자와
    단위가 갈라지지 않게 각 토막은 붙여 둔다. */
-.member-split .nums { grid-column: 1 / -1; display: flex; flex-wrap: wrap;
-  gap: 3px 12px; font-size: 12px; font-weight: 600; }
-.member-split .nums span { white-space: nowrap; }
+/* 수입·지출·저축을 세로로 세운다. 가로로 늘어놓으면 폭이 좁은 폰에서
+   '원'만 다음 줄로 떨어져 나가 읽기 나쁘다. */
+.member-split .nums { grid-column: 1 / -1; display: grid; gap: 2px;
+  font-size: 12px; font-weight: 600; }
+/* 이름표 칸을 따로 두어 숫자가 세로로 나란히 서게 한다 */
+.member-split .nums span { display: grid; grid-template-columns: 30px auto;
+  gap: 6px; white-space: nowrap; }
+.member-split .nums i { font-style: normal; color: var(--muted); }
 
 .bars { padding: 12px 14px; display: grid; gap: 11px; }
 .bar-row .bar-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 5px; }

@@ -475,20 +475,66 @@ function renderScopeTabs() {
   });
 }
 
+/**
+ * 저축을 담는 대분류의 이름. 서버(Code.gs)의 SAVING_GROUP 과 같아야 한다.
+ *
+ * 저축도 통장에서 돈이 나가므로 지출로 적는다. 다만 쓴 돈과 같이 세면
+ * '이번 달에 100만원 썼다'가 되어 버려서, 합계에서만 따로 뺀다.
+ */
+var SAVING_GROUP = '저축';
+
+/** 이 내역이 저축인가. */
+function isSaving(t) {
+  return t.kind === 'expense' && t.categoryGroup === SAVING_GROUP;
+}
+
+/** 내역 몇 건의 수입·지출·저축 합계. */
+function sumOf(items) {
+  var out = { income: 0, expense: 0, saving: 0 };
+  items.forEach(function (t) {
+    out[t.kind === 'income' ? 'income' : (isSaving(t) ? 'saving' : 'expense')] += t.amount;
+  });
+  return out;
+}
+
+/**
+ * 지금 보고 있는 범위의 합계.
+ *
+ * 서버가 저축을 아직 따로 세지 않는 옛 판일 수 있다(화면은 새로 받았는데
+ * 앱스 스크립트를 다시 배포하기 전). 그때는 내역에서 직접 갈라낸다. 그래야
+ * 위쪽 큰 숫자와 아래쪽 목록이 어긋나 보이지 않는다. 남은 돈은 어느 쪽이든
+ * 같다 — 옛 판은 저축을 지출 안에 넣어 이미 빼 놓았기 때문이다.
+ */
 function scopedTotals() {
-  if (state.scope === 'all') return state.summary.total;
-  for (var i = 0; i < state.summary.byMember.length; i++) {
-    if (state.summary.byMember[i].email === state.scope) return state.summary.byMember[i];
+  var t = null;
+  if (state.scope === 'all') t = state.summary.total;
+  else {
+    for (var i = 0; i < state.summary.byMember.length; i++) {
+      if (state.summary.byMember[i].email === state.scope) { t = state.summary.byMember[i]; break; }
+    }
   }
-  return { income: 0, expense: 0, balance: 0 };
+  if (!t) return { income: 0, expense: 0, saving: 0, balance: 0 };
+  if (t.saving !== undefined) return t;
+
+  var saving = 0;
+  state.transactions.forEach(function (x) {
+    if (!isSaving(x)) return;
+    if (state.scope !== 'all' && x.userEmail !== state.scope) return;
+    saving += x.amount;
+  });
+  return {
+    income: t.income, expense: t.expense - saving,
+    saving: saving, balance: t.balance
+  };
 }
 
 function renderHero() {
   var t = scopedTotals();
-  var balance = t.income - t.expense;
+  var balance = t.balance;
   $('#stat-balance').textContent = signed(balance);
   $('#stat-income').textContent = '＋' + num(t.income);
   $('#stat-expense').textContent = '－' + num(t.expense);
+  $('#stat-saving').textContent = '저축 ' + num(t.saving || 0);
   $('#stat-balance-label').textContent =
     state.scope === 'all' ? '둘이 합쳐 남은 돈' : memberName(state.scope) + ' 님 남은 돈';
 }
@@ -514,8 +560,8 @@ function dailyInfo() {
   var map = {};
   visibleTx().forEach(function (t) {
     var d = map[t.date];
-    if (!d) { d = map[t.date] = { income: 0, expense: 0, top: null, topAmount: 0 }; }
-    d[t.kind] += t.amount;
+    if (!d) { d = map[t.date] = { income: 0, expense: 0, saving: 0, top: null, topAmount: 0 }; }
+    d[isSaving(t) ? 'saving' : t.kind] += t.amount;
     if (t.amount > d.topAmount) {
       d.topAmount = t.amount;
       d.top = { icon: t.categoryIcon, color: t.categoryColor };
@@ -565,6 +611,7 @@ function renderCalendar() {
       }
       if (sum && sum.income) html += '<span class="cash income-text">+' + shortNum(sum.income) + '</span>';
       if (sum && sum.expense) html += '<span class="cash expense-text">−' + shortNum(sum.expense) + '</span>';
+      if (sum && sum.saving) html += '<span class="cash saving-text">저 ' + shortNum(sum.saving) + '</span>';
       cell.innerHTML = html;
 
       cell.addEventListener('click', function () {
@@ -593,11 +640,11 @@ function renderDayPanel() {
   var items = visibleTx().filter(function (t) { return t.date === state.selectedDate; });
   title.textContent = dayLabel(state.selectedDate);
 
-  var income = 0, expense = 0;
-  items.forEach(function (t) { if (t.kind === 'income') income += t.amount; else expense += t.amount; });
+  var 합 = sumOf(items);
   sumEl.innerHTML =
-    (income ? '<span class="income-text">+' + num(income) + '</span> ' : '') +
-    (expense ? '<span class="expense-text">−' + num(expense) + '</span>' : '') ||
+    (합.income ? '<span class="income-text">+' + num(합.income) + '</span> ' : '') +
+    (합.expense ? '<span class="expense-text">−' + num(합.expense) + '</span> ' : '') +
+    (합.saving ? '<span class="saving-text">저축 ' + num(합.saving) + '</span>' : '') ||
     '<span class="muted">기록 없음</span>';
 
   if (!items.length) {
@@ -650,8 +697,7 @@ function renderTransactions() {
 
   days.forEach(function (date) {
     var items = byDay[date];
-    var income = 0, expense = 0;
-    items.forEach(function (t) { if (t.kind === 'income') income += t.amount; else expense += t.amount; });
+    var 합 = sumOf(items);
 
     var group = document.createElement('div');
     group.className = 'tx-day';
@@ -660,8 +706,9 @@ function renderTransactions() {
     head.className = 'tx-day-head';
     head.innerHTML = '<span class="jua" style="font-size:13.5px">' + dayLabel(date) + '</span>' +
       '<span class="amt small" style="font-weight:700">' +
-      (income ? '<span class="income-text">+' + num(income) + '</span> ' : '') +
-      (expense ? '<span class="expense-text">−' + num(expense) + '</span>' : '') + '</span>';
+      (합.income ? '<span class="income-text">+' + num(합.income) + '</span> ' : '') +
+      (합.expense ? '<span class="expense-text">−' + num(합.expense) + '</span> ' : '') +
+      (합.saving ? '<span class="saving-text">저축 ' + num(합.saving) + '</span>' : '') + '</span>';
 
     group.appendChild(head);
     group.appendChild(txListCard(items));
@@ -673,6 +720,19 @@ function renderTransactions() {
 /* 분석                                                                */
 /* ------------------------------------------------------------------ */
 
+/**
+ * 분석 화면의 막대 세 칸.
+ *
+ * 저축은 구분이 expense 라서, 지출 칸에서는 빼고 제 칸에 따로 모은다.
+ * saving 표시는 서버가 붙여 준다. 아직 옛 판이면 그 표시가 없어서 예전처럼
+ * 지출 칸에 들어가는데, 그것도 틀린 그림은 아니다.
+ */
+var BAR_SECTIONS = [
+  { key: 'expense', label: '지출', pick: function (r) { return r.kind === 'expense' && !r.saving; } },
+  { key: 'saving', label: '저축', pick: function (r) { return !!r.saving; } },
+  { key: 'income', label: '수입', pick: function (r) { return r.kind === 'income'; } }
+];
+
 function renderStats() {
   var splits = $('#member-splits');
   splits.innerHTML = '';
@@ -683,28 +743,29 @@ function renderStats() {
       '<div class="name jua">' + escapeHtml(m.name) + '</div>' +
       '<div class="amt" style="font-weight:700; color: ' + (m.balance < 0 ? 'var(--expense)' : 'var(--income)') + '">' +
         signed(m.balance) + '원</div>' +
-      '<div class="nums muted amt"><span>수입 ' + won(m.income) + '</span><span>지출 ' + won(m.expense) + '</span></div>';
+      '<div class="nums muted amt"><span>수입 ' + won(m.income) + '</span><span>지출 ' + won(m.expense) + '</span>' +
+        (m.saving ? '<span>저축 ' + won(m.saving) + '</span>' : '') + '</div>';
     splits.appendChild(row);
   });
 
-  ['expense', 'income'].forEach(function (kind) {
-    var box = $('#bars-' + kind);
+  BAR_SECTIONS.forEach(function (sec) {
+    var box = $('#bars-' + sec.key);
     box.innerHTML = '';
 
-    var groups = pickForScope(state.summary.byGroup.filter(function (g) { return g.kind === kind; }));
+    var groups = pickForScope(state.summary.byGroup.filter(sec.pick));
     var sum = groups.reduce(function (a, g) { return a + g.total; }, 0);
     if (!sum) {
-      box.innerHTML = '<div class="empty">이번 달 ' + (kind === 'expense' ? '지출' : '수입') + ' 기록이 없어요</div>';
+      box.innerHTML = '<div class="empty">이번 달 ' + sec.label + ' 기록이 없어요</div>';
       return;
     }
 
     groups.forEach(function (g) {
       var pct = Math.round((g.total / sum) * 100);
-      var key = kind + ':' + g.name;
+      var key = sec.key + ':' + g.name;
       var open = !!state.openGroups[key];
 
       var subs = pickForScope(state.summary.byCategory.filter(function (c) {
-        return c.kind === kind && c.group === g.name;
+        return sec.pick(c) && c.group === g.name;
       }));
 
       var row = document.createElement('div');

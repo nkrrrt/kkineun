@@ -1028,3 +1028,128 @@ test('한 번에 너무 많이 넣으려 하면 막는다', () => {
 
   assert.throws(() => gas.call('importTransactions', { month: '2026-09', rows: 많이 }), /200건까지/);
 });
+
+/* ------------------------------------------------------------------ */
+/* 저축                                                                */
+/* ------------------------------------------------------------------ */
+
+test('저축은 지출에서 빼고 따로 센다', () => {
+  const gas = freshLedger();
+  gas.call('addTransaction', {
+    kind: 'expense', amount: 50000, date: '2026-08-10',
+    categoryId: catId(gas, '식비'), memo: '장보기',
+  });
+  gas.call('addTransaction', {
+    kind: 'expense', amount: 300000, date: '2026-08-25',
+    categoryId: catId(gas, '적금'), memo: '월 적금',
+  });
+
+  const { total } = gas.call('getMonthData', '2026-08').summary;
+  assert.equal(total.expense, 50000, '저축이 쓴 돈에 섞였습니다');
+  assert.equal(total.saving, 300000);
+});
+
+test('남은 돈에서는 저축도 뺀다', () => {
+  const gas = freshLedger();
+  gas.call('addTransaction', {
+    kind: 'income', amount: 1000000, date: '2026-08-25',
+    categoryId: catId(gas, '급여'), memo: '월급',
+  });
+  gas.call('addTransaction', {
+    kind: 'expense', amount: 200000, date: '2026-08-10',
+    categoryId: catId(gas, '식비'), memo: '장보기',
+  });
+  gas.call('addTransaction', {
+    kind: 'expense', amount: 300000, date: '2026-08-25',
+    categoryId: catId(gas, '적금'), memo: '월 적금',
+  });
+
+  // 저축한 돈도 통장에서 나갔다. 따로 보여 줄 뿐, 남은 돈에서는 빠져야 한다.
+  const { total } = gas.call('getMonthData', '2026-08').summary;
+  assert.equal(total.balance, 500000);
+});
+
+test('사람별로도 저축이 따로 잡힌다', () => {
+  const gas = freshLedger();
+  gas.call('addTransaction', {
+    kind: 'expense', amount: 300000, date: '2026-08-25',
+    categoryId: catId(gas, '적금'), memo: '지민 적금',
+  });
+  gas.loginAs(수호);
+  gas.call('addTransaction', {
+    kind: 'expense', amount: 40000, date: '2026-08-11',
+    categoryId: catId(gas, '식비'), memo: '수호 점심',
+  });
+
+  const { byMember } = gas.call('getMonthData', '2026-08').summary;
+  const 지민줄 = byMember.find((m) => m.email === 지민);
+  const 수호줄 = byMember.find((m) => m.email === 수호);
+  assert.equal(지민줄.saving, 300000);
+  assert.equal(지민줄.expense, 0);
+  assert.equal(수호줄.saving, 0);
+  assert.equal(수호줄.expense, 40000);
+});
+
+test('저축 칸에는 저축이라는 표시가 붙는다', () => {
+  const gas = freshLedger();
+  gas.call('addTransaction', {
+    kind: 'expense', amount: 300000, date: '2026-08-25',
+    categoryId: catId(gas, '적금'), memo: '월 적금',
+  });
+  gas.call('addTransaction', {
+    kind: 'expense', amount: 50000, date: '2026-08-10',
+    categoryId: catId(gas, '식비'), memo: '장보기',
+  });
+
+  // 화면이 지출 막대와 저축 막대를 가르는 데 쓰는 표시다
+  const { byGroup } = gas.call('getMonthData', '2026-08').summary;
+  assert.equal(byGroup.find((g) => g.name === '저축').saving, true);
+  assert.equal(byGroup.find((g) => g.name === '먹고 마시기').saving, false);
+});
+
+test('저축 대분류를 두 번 넣지 않는다', () => {
+  const gas = loadGas({ owner: 지민, editors: [수호] });
+  gas.call('ensureSheets_');
+
+  const 저축들 = () => gas.dump('대분류').filter((r) => String(r[2]).trim() === '저축');
+  assert.equal(저축들().length, 1, '기본값에 저축 대분류가 있어야 합니다');
+
+  // 지우면 소분류가 딸려 있어 숨겨진다. 그 뒤 시트 점검을 다시 해도 저축이
+  // 새로 하나 더 생기면 안 된다 — 넣는 일은 딱 한 번뿐이다.
+  gas.call('deleteGroup', String(저축들()[0][0]));
+  gas.forgetCache();
+  gas.call('ensureSheets_');
+
+  const 남은것 = 저축들();
+  assert.equal(남은것.length, 1, '저축 대분류가 하나 더 생겼습니다');
+  assert.equal(남은것[0][4], false, '지운 대분류가 도로 켜졌습니다');
+});
+
+test('저축 없이 쓰던 시트에 저축 대분류를 넣어 준다', () => {
+  const gas = loadGas({ owner: 지민, editors: [수호] });
+  gas.call('ensureSheets_');
+
+  // 저축이 생기기 전부터 쓰던 시트를 만든다. 기본 분류는 시트가 텅 비었을
+  // 때만 깔리므로, 그냥 두면 쓰던 사람에게는 저축이 영영 안 생긴다.
+  const 지우기 = (이름, 칸, 값) => {
+    const sh = gas.sheet(이름);
+    for (let r = sh.data.length; r >= 2; r--) {
+      if (String(sh.data[r - 1][칸]).trim() === 값) sh.deleteRow(r);
+    }
+  };
+  지우기('대분류', 2, '저축');
+  지우기('카테고리', 2, '저축');
+  지우기('설정', 0, '저축 대분류 넣음');
+  assert.equal(gas.dump('대분류').filter((r) => String(r[2]).trim() === '저축').length, 0);
+
+  gas.forgetCache();
+  gas.call('ensureSheets_');
+
+  const 대분류 = gas.dump('대분류').filter((r) => String(r[2]).trim() === '저축');
+  assert.equal(대분류.length, 1, '저축 대분류가 안 생겼습니다');
+  assert.equal(대분류[0][1], 'expense', '저축은 지출 쪽에 붙어야 고를 수 있습니다');
+
+  const 소분류 = gas.dump('카테고리').filter((r) => String(r[2]).trim() === '저축');
+  assert.ok(소분류.length >= 1, '저축에 딸린 소분류가 없습니다');
+  assert.ok(소분류.some((r) => String(r[3]).trim() === '적금'));
+});

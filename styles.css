@@ -17,6 +17,8 @@
   --income-soft: #d9f5e8;
   --expense: #d8394f;
   --expense-soft: #ffe2e7;
+  --saving: #2f56b5;       /* 저축은 쓴 돈도 번 돈도 아니라 색을 따로 준다 */
+  --sky: #bcd2ff;
   --pick: #201d30;         /* 고른 것의 테두리 */
   --tabbar-h: 66px;
   color-scheme: light;
@@ -44,6 +46,8 @@
   --income-soft: #143b2e;
   --expense: #ff8fa0;
   --expense-soft: #3b1d25;
+  --saving: #90b4ff;
+  --sky: #3c5a94;
   --pick: #fff3b8;
   color-scheme: dark;
 }
@@ -72,6 +76,7 @@ button { cursor: pointer; }
 .small { font-size: 13px; }
 .income-text { color: var(--income); }
 .expense-text { color: var(--expense); }
+.saving-text { color: var(--saving); }
 .row { display: flex; gap: 10px; align-items: center; }
 .row-between { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 
@@ -191,7 +196,7 @@ button { cursor: pointer; }
 .cal-cell .cash { font-size: 9px; font-weight: 700; line-height: 1.1; letter-spacing: -0.4px; }
 /* 밝은 파스텔로 칠한 칸에서는 글자를 어둡게 (특히 다크 모드에서 안 읽힘) */
 .cal-cell.month-start, .cal-cell.today, .cal-cell[aria-selected='true'] {
-  --income: #0f7a52; --expense: #c02b3f;
+  --income: #0f7a52; --expense: #c02b3f; --saving: #274a9e;
 }
 .cal-cell.month-start .dnum, .cal-cell.today .dnum, .cal-cell[aria-selected='true'] .dnum { color: #2a2440; }
 .cal-dot { display: flex; gap: 2px; margin-top: 1px; }
@@ -226,7 +231,11 @@ button { cursor: pointer; }
   padding: 8px 0; border-bottom: 2px dashed var(--line); }
 .member-split:last-child { border-bottom: 0; }
 .member-split .name { font-weight: 700; }
-.member-split .nums { display: flex; gap: 12px; font-size: 12px; font-weight: 600; }
+/* 수입·지출·저축 세 칸이라 왼쪽 칸만으로는 좁다. 줄 전체를 쓰고, 숫자와
+   단위가 갈라지지 않게 각 토막은 붙여 둔다. */
+.member-split .nums { grid-column: 1 / -1; display: flex; flex-wrap: wrap;
+  gap: 3px 12px; font-size: 12px; font-weight: 600; }
+.member-split .nums span { white-space: nowrap; }
 
 .bars { padding: 12px 14px; display: grid; gap: 11px; }
 .bar-row .bar-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 5px; }

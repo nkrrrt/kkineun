@@ -18,8 +18,18 @@ var CAT_HEADERS = ['ID', '구분', '대분류', '이름', '아이콘', '사용']
 var MEMBER_HEADERS = ['이메일', '표시이름', '첫접속'];
 var SETTINGS_HEADERS = ['항목', '값', '설명'];
 
+/**
+ * 저축을 담는 대분류의 이름.
+ *
+ * 저축은 통장에서 돈이 나가므로 지출로 적는다(구분이 expense 다). 하지만
+ * 쓴 돈과 같이 세면 '이번 달에 100만원 썼다'가 되어 버려서, 셈할 때는 따로
+ * 뺀다. 대분류 하나를 그 자리로 쓰면 내역·분류 화면은 손댈 것이 없다.
+ */
+var SAVING_GROUP = '저축';
+
 var KEY_START_DAY = '월 시작일';
 var KEY_END_DAY = '월 종료일';
+var KEY_SAVING_READY = '저축 대분류 넣음';
 
 var DEFAULT_START_DAY = 1;
 
@@ -66,6 +76,7 @@ var DEFAULT_GROUPS = [
   ['expense', '건강', '#4fc0a0'],
   ['expense', '꾸미기', '#f07ab0'],
   ['expense', '즐기기', '#b18cf0'],
+  ['expense', '저축', '#4361c9'],
   ['expense', '그 밖에', '#9aa0b0'],
   ['income', '버는 돈', '#3fa9f5'],
   ['income', '그 밖에', '#7ec98a']
@@ -98,6 +109,10 @@ var DEFAULT_CATEGORIES = [
   ['expense', '즐기기', '사진·장비', 'camera'],
   ['expense', '즐기기', '구독', 'play'],
   ['expense', '즐기기', '여행', 'plane'],
+  ['expense', '저축', '적금', 'piggy'],
+  ['expense', '저축', '예금', 'coins'],
+  ['expense', '저축', '투자', 'star'],
+  ['expense', '저축', '비상금', 'wallet'],
   ['expense', '그 밖에', '교육', 'book'],
   ['expense', '그 밖에', '경조사', 'gift'],
   ['expense', '그 밖에', '기부·후원', 'heart'],
@@ -347,6 +362,7 @@ function ensureSheets_() {
   }
 
   sheetWithHeaders_(ss, SHEET_MEMBER, MEMBER_HEADERS, [220, 130, 150]);
+  addSavingGroup_(ss, grp, cat);
 
 
   var settings = sheetWithHeaders_(ss, SHEET_SETTINGS, SETTINGS_HEADERS, [110, 70, 420]);
@@ -373,6 +389,42 @@ function ensureSheets_() {
  * 예전: ID | 구분 | 이름 | 색상 | (아이콘) | 사용
  * 지금: 대분류 시트가 색을 갖고, 카테고리 시트는 대분류 이름을 가리킨다.
  */
+/**
+ * 이미 쓰고 있는 시트에 저축 대분류를 넣어 준다.
+ *
+ * 기본 분류는 시트가 텅 비었을 때만 깔린다. 그래서 쓰던 사람의 시트에는
+ * 저축이 영영 안 생긴다. 여기서 한 번 채워 넣는다.
+ *
+ * '넣었다'는 표시를 설정 시트에 남겨서 딱 한 번만 한다. 표시 없이 '저축이
+ * 없으면 넣는다'로 하면, 저축을 일부러 지운 사람에게 자꾸 되살아난다.
+ */
+function addSavingGroup_(ss, grp, cat) {
+  var settings = ss.getSheetByName(SHEET_SETTINGS);
+  if (!settings) return;
+
+  var last = settings.getLastRow();
+  var rows = last < 2 ? [] : settings.getRange(2, 1, last - 1, 1).getValues();
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i][0] || '').trim() === KEY_SAVING_READY) return;
+  }
+  settings.appendRow([KEY_SAVING_READY, 'done', '저축 대분류를 한 번 넣었다는 표시']);
+
+  var 있음 = false;
+  var glast = grp.getLastRow();
+  var gs = glast < 2 ? [] : grp.getRange(2, 1, glast - 1, GROUP_HEADERS.length).getValues();
+  gs.forEach(function (r) {
+    if (String(r[GRP_KIND - 1]).trim() === 'expense' &&
+        String(r[GRP_NAME - 1]).trim() === SAVING_GROUP) 있음 = true;
+  });
+  if (있음) return;
+
+  grp.appendRow([newId_(), 'expense', SAVING_GROUP, '#4361c9', true]);
+  DEFAULT_CATEGORIES.forEach(function (c) {
+    if (c[1] !== SAVING_GROUP) return;
+    cat.appendRow([newId_(), c[0], c[1], c[2], c[3], true]);
+  });
+}
+
 function migrateCategories_(grp, cat) {
   var lastCol = cat.getLastColumn();
   if (lastCol < 1) return;
@@ -1399,13 +1451,25 @@ function getMonthData(month, ctx) {
   };
 }
 
+/**
+ * 저축인가. 지출로 적히지만 셈은 따로 한다.
+ *
+ * 구분(kind)이 아니라 대분류로 가른다. 저축도 통장에서 돈이 나가는 것이라
+ * 내역·달력·가져오기는 지출과 똑같이 다루면 되고, 달라지는 건 합계뿐이다.
+ */
+function isSaving_(t) {
+  return t.kind === 'expense' && t.categoryGroup === SAVING_GROUP;
+}
+
 function summarize_(transactions, members) {
-  var total = { income: 0, expense: 0, balance: 0 };
+  var total = { income: 0, expense: 0, saving: 0, balance: 0 };
   var byMember = {};
   var order = [];
 
   members.forEach(function (m) {
-    byMember[m.email] = { email: m.email, name: m.name, income: 0, expense: 0, balance: 0 };
+    byMember[m.email] = {
+      email: m.email, name: m.name, income: 0, expense: 0, saving: 0, balance: 0
+    };
     order.push(m.email);
   });
 
@@ -1415,23 +1479,25 @@ function summarize_(transactions, members) {
   var groupOrder = [];
 
   transactions.forEach(function (t) {
-    total[t.kind] += t.amount;
+    var saving = isSaving_(t);
+    var slot = saving ? 'saving' : t.kind;
+    total[slot] += t.amount;
 
     if (!byMember[t.userEmail]) {
       byMember[t.userEmail] = {
         email: t.userEmail,
         name: t.userEmail ? nameFromEmail_(t.userEmail) : '(알 수 없음)',
-        income: 0, expense: 0, balance: 0
+        income: 0, expense: 0, saving: 0, balance: 0
       };
       order.push(t.userEmail);
     }
-    byMember[t.userEmail][t.kind] += t.amount;
+    byMember[t.userEmail][slot] += t.amount;
 
     var key = t.kind + ':' + t.categoryName;
     if (!byCategory[key]) {
       byCategory[key] = {
         name: t.categoryName, kind: t.kind, group: t.categoryGroup, color: t.categoryColor,
-        icon: t.categoryIcon, total: 0, perUser: {}
+        icon: t.categoryIcon, saving: saving, total: 0, perUser: {}
       };
       catOrder.push(key);
     }
@@ -1442,7 +1508,8 @@ function summarize_(transactions, members) {
     var gkey = t.kind + ':' + t.categoryGroup;
     if (!byGroup[gkey]) {
       byGroup[gkey] = {
-        name: t.categoryGroup, kind: t.kind, color: t.categoryColor, total: 0, perUser: {}
+        name: t.categoryGroup, kind: t.kind, color: t.categoryColor,
+        saving: saving, total: 0, perUser: {}
       };
       groupOrder.push(gkey);
     }
@@ -1450,11 +1517,12 @@ function summarize_(transactions, members) {
     byGroup[gkey].perUser[t.userEmail] = (byGroup[gkey].perUser[t.userEmail] || 0) + t.amount;
   });
 
-  total.balance = total.income - total.expense;
+  // 저축도 통장에서 나간 돈이라 남은 돈에서는 뺀다. 따로 보여 줄 뿐이다.
+  total.balance = total.income - total.expense - total.saving;
 
   var memberList = order.map(function (email) {
     var m = byMember[email];
-    m.balance = m.income - m.expense;
+    m.balance = m.income - m.expense - m.saving;
     return m;
   });
 

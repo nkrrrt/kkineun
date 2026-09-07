@@ -1477,3 +1477,82 @@ test('가게 이름이 그대로 나온다', { skip }, async () => {
     '가게하나', '가게둘', '가게셋', '가게넷', '가게다섯', '가게다섯', '가게여섯', '가게일곱',
   ]);
 });
+
+/* ------------------------------------------------------------------ */
+/* 저축                                                                */
+/* ------------------------------------------------------------------ */
+
+/** 저축 한 건과 지출 한 건. categoryGroup 이 저축인지 가르는 잣대다. */
+const 저축섞인내역 = [
+  { id: 'a', date: '2026-08-25', kind: 'expense', amount: 300000, categoryGroup: '저축',
+    categoryName: '적금', categoryIcon: 'piggy', categoryColor: '#4361c9',
+    memo: '월 적금', userEmail: 지민, userName: '지민' },
+  { id: 'b', date: '2026-08-10', kind: 'expense', amount: 50000, categoryGroup: '먹고 마시기',
+    categoryName: '식비', categoryIcon: 'food', categoryColor: '#ff9f68',
+    memo: '장보기', userEmail: 지민, userName: '지민' },
+  { id: 'c', date: '2026-08-25', kind: 'income', amount: 1000000, categoryGroup: '버는 돈',
+    categoryName: '급여', categoryIcon: 'money', categoryColor: '#3fa9f5',
+    memo: '월급', userEmail: 지민, userName: '지민' },
+];
+
+test('위쪽 큰 숫자에 저축이 따로 나온다', { skip }, async () => {
+  const { win, doc } = openApp();
+  await wait(200);
+
+  win.state.transactions = 저축섞인내역;
+  win.state.summary = {
+    total: { income: 1000000, expense: 50000, saving: 300000, balance: 650000 },
+    byMember: [], byGroup: [], byCategory: [],
+  };
+  win.state.scope = 'all';
+  win.renderHero();
+
+  assert.equal(doc.getElementById('stat-expense').textContent, '－50,000');
+  assert.equal(doc.getElementById('stat-saving').textContent, '저축 300,000');
+  // 저축도 통장에서 나간 돈이라 남은 돈에서는 빠진다
+  assert.equal(doc.getElementById('stat-balance').textContent, '+650,000');
+});
+
+test('서버가 옛 판이어도 화면이 저축을 갈라낸다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 앱스 스크립트를 다시 배포하기 전에는 저축이 지출 안에 들어 있고
+  // saving 칸이 아예 없다. 그때는 화면이 내역을 보고 직접 가른다.
+  win.state.transactions = 저축섞인내역;
+  win.state.summary = {
+    total: { income: 1000000, expense: 350000, balance: 650000 },
+    byMember: [], byGroup: [], byCategory: [],
+  };
+  win.state.scope = 'all';
+
+  const t = win.scopedTotals();
+  assert.equal(t.expense, 50000, '저축이 쓴 돈에 남아 있습니다');
+  assert.equal(t.saving, 300000);
+  assert.equal(t.balance, 650000, '남은 돈은 어느 판이든 같아야 합니다');
+});
+
+test('하루 소계도 저축을 갈라 놓는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  const 합 = win.sumOf(저축섞인내역);
+  assert.equal(합.income, 1000000);
+  assert.equal(합.expense, 50000);
+  assert.equal(합.saving, 300000);
+});
+
+test('분석 화면의 지출 막대에 저축이 섞이지 않는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  const 지출칸 = win.BAR_SECTIONS.filter((s) => s.key === 'expense')[0];
+  const 저축칸 = win.BAR_SECTIONS.filter((s) => s.key === 'saving')[0];
+  const 저축묶음 = { name: '저축', kind: 'expense', saving: true, total: 300000 };
+  const 식비묶음 = { name: '먹고 마시기', kind: 'expense', saving: false, total: 50000 };
+
+  assert.equal(지출칸.pick(저축묶음), false, '저축이 지출 막대에 들어갔습니다');
+  assert.equal(지출칸.pick(식비묶음), true);
+  assert.equal(저축칸.pick(저축묶음), true);
+  assert.equal(저축칸.pick(식비묶음), false);
+});

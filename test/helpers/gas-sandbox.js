@@ -265,6 +265,13 @@ export function loadGas({ owner = 'jimin@example.com', editors = ['suho@example.
     },
     sheetNames: () => spreadsheet.sheets.map((s) => s.getName()),
     /**
+     * 시트를 직접 손대기.
+     *
+     * '옛날부터 쓰던 시트' 같은 상황은 창구를 통해서는 만들 수가 없다.
+     * 이사(migration)를 시험하려면 시트를 그 시절 모습으로 되돌려야 한다.
+     */
+    sheet: (name) => spreadsheet.getSheetByName(name),
+    /**
      * 구글이 발급한 증명서를 하나 만들어 둔다.
      *
      * 실제 증명서와 같은 모양(머리.내용.서명)으로 만든다. 서버가 모양부터 보고

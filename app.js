@@ -930,6 +930,30 @@ function parseBankText(text, baseYear) {
       return;
     }
 
+    // 9.7 · 9/3 — 달과 날만 있고, 그 뒤에 바로 이름과 금액이 이어지는 형식.
+    //
+    // 은행 입출금 내역이 이렇게 생겼다. 날짜는 그날 첫 줄에만 붙고, 같은 날
+    // 나머지 줄에는 없다.
+    //
+    //   9.7  현대카드(주)  -1,307,424원
+    //        18:31          567,675원
+    //        한화생명09066   -16,053원      ← 날짜 없음, 위의 9.7 이 이어진다
+    //
+    // 금액을 날짜로 잘못 보지 않도록 조인다. 뒤에 숫자나 구분점이 더 붙으면
+    // 날짜가 아니다 — '3.022.697' 은 3월 2일이 아니라 금액이다.
+    var md = line.match(/^\s*(\d{1,2})\s*[.,\-/]\s*(\d{1,2})(?![.,\-/\d])\s*(.*)$/);
+    if (md && Number(md[1]) >= 1 && Number(md[1]) <= 12 &&
+        Number(md[2]) >= 1 && Number(md[2]) <= 31) {
+      flush();
+      month = Number(md[1]);
+      day = Number(md[2]);
+      before = { month: month, day: day };
+      // 날짜 뒤에 이름과 금액이 이어져 있으면 그것부터 담는다
+      var 남은것 = md[3].trim();
+      if (남은것) buffer.push(남은것);
+      return;
+    }
+
     var d = line.match(/^\D{0,3}(\d{1,2})\s*월\s*(\d{1,3})\s*\S{0,2}$/);
     if (d) {
       // 날짜가 바뀌기 전에 읽던 것을 먼저 마무리한다. 시각의 콜론이 인식되지
@@ -942,6 +966,30 @@ function parseBankText(text, baseYear) {
       before = got;
       return;
     }
+    // 03  네이버페이결제  -4,400원
+    //
+    // 날짜 앞자리를 놓쳐 '9.3' 이 '03' 으로 읽히는 일이 잦다. 이럴 때 그냥
+    // 두면 그 줄이 윗 날짜에 딸려 들어가 엉뚱한 날에 기록된다.
+    //
+    // 앞자리가 0 으로 남는 것이 표다. '9' 가 뭉개져 '0' 이 되고 점이 날아가
+    // '9.3' 이 '03' 이 된다. 그냥 숫자 하나로 시작하는 줄까지 날짜로 보면,
+    // 이름 앞의 아이콘 찌꺼기('8 ㅎ주자유시장상인회')를 날짜로 오해한다.
+    //
+    // 그 위에 조건을 더 건다 — 이미 날짜를 봤고, 은행 목록은 늘 최신순이니
+    // 앞 날짜보다 앞선 날이어야 하고, 뒤에 이름과 금액이 이어져야 한다.
+    var 날만 = month && before ? line.match(/^\s*0(\d{1,2})\s+(\S.*)$/) : null;
+    if (날만) {
+      var 날 = Number(날만[1]);
+      var 뒤 = 날만[2];
+      if (날 >= 1 && 날 < before.day && hasName(뒤) && hasMoney([뒤])) {
+        flush();
+        day = 날;
+        before = { month: month, day: day };
+        buffer.push(뒤);
+        return;
+      }
+    }
+
     // 시각으로 한 건이 끝난다. 앞에 아이콘이 글자로 섞여 들어오기도 한다.
     // 다만 아직 금액을 못 본 상태의 시각은 그냥 버린다. 붙여넣은 글자에서는
     // 시각이 금액보다 먼저 오기도 하는데, 그때 끝맺어 버리면 한 건이 통째로 사라진다.
@@ -986,10 +1034,15 @@ function moneyIn(line) {
   while ((m = re.exec(line)) !== null) {
     var raw = m[2];
     var grouped = /[,.\s]/.test(raw);
-    if (!grouped && !m[3] && !m[1]) continue;      // 그냥 숫자는 금액이 아니다
+    var sign = m[1] || '';
+    // '동양생09-067' 의 '-' 는 금액의 부호가 아니라 계좌·증권 번호의 일부다.
+    // 진짜 금액은 이름과 떨어져 있어서, 부호 앞이 줄머리이거나 띄어져 있다.
+    // 이걸 안 가리면 -73,995원짜리 내역이 67원이 되어 버린다.
+    if (sign && /[0-9A-Za-z\uAC00-\uD7A3]/.test(line.charAt(m.index - 1))) sign = '';
+    if (!grouped && !m[3] && !sign) continue;      // 그냥 숫자는 금액이 아니다
     var value = Number(raw.replace(/[^0-9]/g, ''));
     if (!value) continue;
-    out.push({ text: m[0], value: value, sign: m[1] || '' });
+    out.push({ text: m[0], value: value, sign: sign });
   }
   return out;
 }
@@ -1353,11 +1406,22 @@ function pickNameLines(모두, 금액없는줄) {
     return false;
   };
 
-  for (var i = 0; i < 금액없는줄.length; i++) {
-    if (온전한상호(금액없는줄[i])) return [금액없는줄[i]];
+  var 골랐다 = null;
+  for (var i = 0; i < 금액없는줄.length && !골랐다; i++) {
+    if (온전한상호(금액없는줄[i])) 골랐다 = [금액없는줄[i]];
   }
-  var 쓸만 = 모두.filter(쓸만함);
-  return 쓸만.length ? 쓸만 : 모두;
+  if (!골랐다) {
+    var 쓸만 = 모두.filter(쓸만함);
+    골랐다 = 쓸만.length ? 쓸만 : 모두;
+  }
+
+  // 글자 없이 숫자만 있는 줄은 이름이 아니다. 잔액이나 주문번호가 이렇게 따로
+  // 떨어져 나와 '카카오T바이크 2577092' 가 되곤 했다. 다만 계좌번호로 보낸
+  // 이체처럼 숫자밖에 없는 내역도 있어서, 그것뿐일 때는 그거라도 쓴다.
+  var 글자있는것 = 골랐다.filter(function (v) {
+    return /[\uAC00-\uD7A3\u3131-\u318EA-Za-z]/.test(v);
+  });
+  return 글자있는것.length ? 글자있는것 : 골랐다;
 }
 
 /** 한 건에서 금액·이름을 뽑는다. 못 뽑으면 null. */
@@ -1406,12 +1470,8 @@ function buildRow(buffer, year, month, day) {
     rest = tidyName(rest);
     // 시각의 콜론이 날아가 '1133' 같은 숫자만 남은 줄은 이름이 아니다
     if (rest.length > 1 && !/^\d{3,4}$/.test(rest)) {
-      // 글자가 하나도 없이 숫자만 남은 줄은 이름이 아니다. 잔액이나 주문번호가
-      // 이렇게 따로 떨어져 나와 '카카오T바이크 2577092' 가 되곤 했다.
-      if (/[\uAC00-\uD7A3\u3131-\u318EA-Za-z]/.test(rest)) {
-        cleaned.push(rest);
-        if (!hasMoney([line])) 금액없는줄.push(rest);
-      }
+      cleaned.push(rest);
+      if (!hasMoney([line])) 금액없는줄.push(rest);
       if (!lead && raw) lead = raw.split(' ')[0];
     }
   });

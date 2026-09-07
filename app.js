@@ -274,11 +274,38 @@ function signed(n) {
   return (n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(n).toLocaleString('ko-KR');
 }
 
+/** 달력 칸처럼 좁은 자리에 쓰는 짧은 금액 단위. 억 · 만 · 천 순으로 본다. */
+var SHORT_UNITS = [[100000000, '억'], [10000, '만'], [1000, '천']];
+
+/**
+ * 좁은 자리에 넣을 짧은 금액. 595만 · 14.5만 · 5.4천 처럼 쓴다.
+ *
+ * 우리말 금액 단위는 만 다음이 억이다. '천만'은 만의 천 배를 부르는 말이지
+ * 그 자체로 쓰는 단위가 아니어서, 595만원이 '0.6천만'으로 나오고 있었다.
+ *
+ * 소수점은 앞자리가 두 자리 이하일 때만 붙인다. 595.0만 처럼 늘어놓아 봐야
+ * 칸만 잡아먹고 읽기에 보태는 것이 없다.
+ */
 function shortNum(n) {
   n = Math.abs(Number(n || 0));
-  if (n >= 1000000) return Math.round(n / 1000000) / 10 + '천만';
-  if (n >= 10000) return Math.round(n / 1000) / 10 + '만';
-  if (n >= 1000) return Math.round(n / 100) / 10 + '천';
+  if (n < 1000) return String(n);
+
+  for (var i = 0; i < SHORT_UNITS.length; i++) {
+    var size = SHORT_UNITS[i][0];
+    var name = SHORT_UNITS[i][1];
+    if (n < size) continue;
+
+    var v = n / size;
+    v = v >= 100 ? Math.round(v) : Math.round(v * 10) / 10;
+
+    // 반올림하다 윗 단위에 닿으면 그 단위로 올려 쓴다 (9,995원 → 10천 → 1만)
+    if (i > 0 && v * size >= SHORT_UNITS[i - 1][0]) {
+      size = SHORT_UNITS[i - 1][0];
+      name = SHORT_UNITS[i - 1][1];
+      v = Math.round((n / size) * 10) / 10;
+    }
+    return v.toLocaleString('ko-KR') + name;
+  }
   return String(n);
 }
 

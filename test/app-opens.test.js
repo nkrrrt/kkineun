@@ -1556,3 +1556,35 @@ test('분석 화면의 지출 막대에 저축이 섞이지 않는다', { skip }
   assert.equal(저축칸.pick(저축묶음), true);
   assert.equal(저축칸.pick(식비묶음), false);
 });
+
+test('좁은 자리에 쓰는 금액이 우리말 단위로 나온다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 우리말은 만 다음이 억이다. '천만'은 만의 천 배를 부르는 말이라
+  // 595만원이 '0.6천만' 으로 나오면 읽을 수가 없다.
+  assert.equal(win.shortNum(5950000), '595만');
+  assert.equal(win.shortNum(1000000), '100만');
+  assert.equal(win.shortNum(12000000), '1,200만');
+  assert.equal(win.shortNum(250000000), '2.5억');
+
+  // 앞자리가 작을 때만 소수점을 붙인다
+  assert.equal(win.shortNum(145000), '14.5만');
+  assert.equal(win.shortNum(500000), '50만');
+  assert.equal(win.shortNum(5400), '5.4천');
+
+  // 천 미만은 그대로, 부호는 쓰는 쪽에서 붙인다
+  assert.equal(win.shortNum(999), '999');
+  assert.equal(win.shortNum(0), '0');
+  assert.equal(win.shortNum(-145000), '14.5만');
+});
+
+test('반올림하다 윗 단위에 닿으면 그 단위로 올려 쓴다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 9,995원을 천 단위로 반올림하면 10.0천이 된다. 그건 1만이라고 써야 한다.
+  assert.equal(win.shortNum(9995), '1만');
+  assert.equal(win.shortNum(9999), '1만');
+  assert.equal(win.shortNum(99999500), '1억');
+});

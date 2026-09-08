@@ -35,7 +35,7 @@
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <link rel="stylesheet" href="styles.css?v=20260908a" />
+  <link rel="stylesheet" href="styles.css?v=20260908b" />
 </head>
 <body>
 
@@ -176,6 +176,84 @@
     <div class="card bars" id="bars-income"></div>
   </section>
 
+  <!-- ───────── 집값 계산기 ───────── -->
+  <section id="screen-house" class="screen" hidden>
+    <div class="section-title">집값 넣기</div>
+    <div class="card house-form">
+      <label class="house-row">
+        <span>집값</span>
+        <span class="house-input"><input type="number" id="hs-price" inputmode="numeric" min="0" placeholder="52000" /><i>만원</i></span>
+      </label>
+      <div class="house-read" id="hs-price-read">얼마짜리 집인지 넣어보세요</div>
+
+      <label class="house-row">
+        <span>가진 돈</span>
+        <span class="house-input"><input type="number" id="hs-cash" inputmode="numeric" min="0" placeholder="15000" /><i>만원</i></span>
+      </label>
+      <div class="house-read" id="hs-cash-read"></div>
+
+      <label class="house-row">
+        <span>주택 수</span>
+        <select id="hs-homes">
+          <option value="1">1주택 (처음 사는 집)</option>
+          <option value="2">2주택 (조정지역)</option>
+          <option value="3">3주택 이상</option>
+        </select>
+      </label>
+
+      <label class="house-check">
+        <input type="checkbox" id="hs-big" />
+        <span>전용면적 85㎡ 초과 (농어촌특별세가 붙어요)</span>
+      </label>
+    </div>
+
+    <div class="section-title">주택담보대출</div>
+    <div class="card" id="hs-loan"></div>
+
+    <div class="section-title">따로 드는 돈</div>
+    <div class="card" id="hs-cost"></div>
+
+    <div class="section-title">언제 얼마가 필요한가</div>
+    <div class="card" id="hs-flow"></div>
+
+    <details class="card house-more" id="hs-more">
+      <summary>숫자 직접 고치기</summary>
+      <p class="muted small" style="margin: 4px 0 10px">
+        세율은 규칙이 바뀌거나 지역·조건에 따라 달라져요. 빈칸이면 흔한 경우로
+        알아서 셈하고, 넣으면 그 값을 씁니다.
+      </p>
+      <label class="house-row">
+        <span>취득세율</span>
+        <span class="house-input"><input type="number" id="hs-tax-rate" inputmode="decimal" step="0.1" min="0" placeholder="자동" /><i>%</i></span>
+      </label>
+      <label class="house-row">
+        <span>중개보수율</span>
+        <span class="house-input"><input type="number" id="hs-fee-rate" inputmode="decimal" step="0.1" min="0" placeholder="자동" /><i>%</i></span>
+      </label>
+      <label class="house-check">
+        <input type="checkbox" id="hs-fee-vat" checked />
+        <span>중개보수에 부가세 10% 붙이기</span>
+      </label>
+      <label class="house-row">
+        <span>법무사·기타</span>
+        <span class="house-input"><input type="number" id="hs-legal" inputmode="numeric" min="0" placeholder="60" /><i>만원</i></span>
+      </label>
+      <label class="house-row">
+        <span>대출 한도(LTV)</span>
+        <span class="house-input"><input type="number" id="hs-ltv" inputmode="numeric" min="0" max="100" placeholder="70" /><i>%</i></span>
+      </label>
+      <label class="house-row">
+        <span>계약금 비율</span>
+        <span class="house-input"><input type="number" id="hs-down" inputmode="numeric" min="0" max="100" placeholder="10" /><i>%</i></span>
+      </label>
+    </details>
+
+    <p class="muted small" style="margin: 14px 4px 4px; line-height: 1.6">
+      어림값이에요. 실제 세금과 대출 한도는 지역·주택 수·면적·소득에 따라
+      달라지니, 계약 전에 꼭 확인하세요.
+    </p>
+  </section>
+
   <!-- ───────── 설정 ───────── -->
   <section id="screen-settings" class="screen" hidden>
     <div class="section-title">화면</div>
@@ -297,6 +375,10 @@
   <button type="button" data-tab="stats" aria-selected="false">
     <span class="bub"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 19v-5M12 19V6M18.5 19v-8"/></svg></span>
     <span class="lab">분석</span>
+  </button>
+  <button type="button" data-tab="house" aria-selected="false">
+    <span class="bub"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5 12 4l8 6.5"/><path d="M6 10v9.5h12V10"/><path d="M10 19.5v-5h4v5"/></svg></span>
+    <span class="lab">집값</span>
   </button>
   <button type="button" data-tab="settings" aria-selected="false">
     <span class="bub"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5h8M18.5 7.5h1.5M4 16.5h4M14.5 16.5h5.5"/><circle cx="15" cy="7.5" r="2.6"/><circle cx="11" cy="16.5" r="2.6"/></svg></span>
@@ -434,7 +516,7 @@
 </dialog>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="config.js?v=20260908a"></script>
-<script src="app.js?v=20260908a"></script>
+<script src="config.js?v=20260908b"></script>
+<script src="app.js?v=20260908b"></script>
 </body>
 </html>

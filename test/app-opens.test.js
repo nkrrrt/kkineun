@@ -1897,3 +1897,157 @@ test('날짜 칸이 두 자리로 뭉개져도 되살린다', { skip }, async ()
   assert.deepEqual(날짜, ['2026-09-04', '2026-09-02', '2026-09-01'],
     '날짜: ' + JSON.stringify(날짜));
 });
+
+/* ------------------------------------------------------------------ */
+/* 집값 계산기                                                          */
+/* ------------------------------------------------------------------ */
+
+test('취득세율이 구간대로 나온다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 1주택: 6억까지 1%, 9억부터 3%, 그 사이는 이어지는 값
+  assert.equal(win.취득세율(50000, 1), 1);
+  assert.equal(win.취득세율(60000, 1), 1);
+  assert.equal(win.취득세율(75000, 1), 2, '7.5억은 딱 가운데인 2% 여야 합니다');
+  assert.equal(win.취득세율(90000, 1), 3);
+  assert.equal(win.취득세율(150000, 1), 3);
+
+  // 여러 채 가진 경우는 중과된다
+  assert.equal(win.취득세율(50000, 2), 8);
+  assert.equal(win.취득세율(50000, 3), 12);
+});
+
+test('중개보수는 구간 요율과 한도를 따른다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 5천만·2억 아래 구간에는 한도액이 따로 있다
+  const 싼집 = win.houseCost({ 집값: 4000, 중개부가세: false });
+  assert.equal(싼집.중개액, 24, '4천만 × 0.6% = 24만원 (한도 25만원 안)');
+  const 한도집 = win.houseCost({ 집값: 19000, 중개부가세: false });
+  assert.equal(한도집.중개액, 80, '1억9천 × 0.5% = 95만원이지만 한도가 80만원입니다');
+
+  // 그 위로는 한도 없이 요율대로
+  assert.equal(win.houseCost({ 집값: 52000, 중개부가세: false }).중개액, 208);
+  assert.equal(win.houseCost({ 집값: 130000, 중개부가세: false }).중개액, 780);
+});
+
+test('인지세는 계단식으로 붙는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  assert.equal(win.인지세(900), 0);
+  assert.equal(win.인지세(9000), 7);
+  assert.equal(win.인지세(52000), 15);
+  assert.equal(win.인지세(120000), 35);
+});
+
+test('넓은 집에만 농어촌특별세가 붙는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  assert.equal(win.houseCost({ 집값: 52000, 넓은집: false }).농특세, 0);
+  // 전용 85㎡ 초과 1주택은 0.2%
+  assert.equal(win.houseCost({ 집값: 52000, 넓은집: true }).농특세, 104);
+});
+
+test('앞뒤 셈이 어긋나지 않는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  const r = win.houseCost({ 집값: 52000, 가진돈: 25000 });
+  // 내가 낸 돈 + 빌린 돈 = 집값 + 따로 드는 돈. 이게 안 맞으면 어딘가 샌 것이다.
+  assert.equal(Math.round(r.내돈합계 + r.빌릴돈), Math.round(r.집값 + r.부대비용));
+  assert.equal(Math.round(r.계약금 + r.잔금), r.집값);
+  assert.equal(Math.round(r.총필요), Math.round(r.집값 + r.부대비용));
+});
+
+test('한도로도 모자라면 얼마가 모자란지 알려준다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 5억2천 집, 가진 돈 1억5천. 드는 돈까지 5억2,876만원이 필요한데
+  // LTV 70% 로는 3억6,400만원까지만 빌릴 수 있다.
+  const r = win.houseCost({ 집값: 52000, 가진돈: 15000, ltv: 70 });
+  assert.equal(r.한도, 36400);
+  assert.equal(r.필요대출, 37876);
+  assert.equal(r.모자란돈, 1476);
+  // 한도를 넘겨 빌릴 수는 없다
+  assert.equal(r.빌릴돈, 36400);
+
+  const 넉넉 = win.houseCost({ 집값: 52000, 가진돈: 25000, ltv: 70 });
+  assert.equal(넉넉.모자란돈, 0);
+});
+
+test('세율을 직접 넣으면 그 값을 쓴다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 규칙이 바뀌어도 앱을 고치지 않고 숫자만 바꿔 쓸 수 있어야 한다
+  const 자동 = win.houseCost({ 집값: 52000, 취득율: '' });
+  const 직접 = win.houseCost({ 집값: 52000, 취득율: 2.5 });
+  assert.equal(자동.취득세, 520);
+  assert.equal(직접.취득세, 1300);
+  assert.equal(직접.교육율, 0.25, '지방교육세는 취득세율을 따라갑니다');
+});
+
+test('금액을 억·만원으로 읽어 준다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  assert.equal(win.억만(52000), '5억 2,000만원');
+  assert.equal(win.억만(30000), '3억원');
+  assert.equal(win.억만(876), '876만원');
+  assert.equal(win.억만(0), '0원');
+  assert.equal(win.억만(-1476), '−1,476만원');
+});
+
+test('집값 탭이 열리고 넣은 값이 화면에 반영된다', { skip }, async () => {
+  const { doc, win } = openApp();
+  await wait(300);
+
+  win.showTab('house');
+  assert.equal(st(doc, 'screen-house'), '보임');
+  // 가계부에 딸린 달 고르개와 기록 단추는 이 탭에서 나오지 않는다
+  assert.equal(st(doc, 'header'), '숨김');
+  assert.equal(st(doc, 'btn-add'), '숨김');
+  assert.match(doc.getElementById('hs-loan').textContent, /집값을 넣으면/);
+
+  doc.getElementById('hs-price').value = '52000';
+  win.renderHouse();
+  assert.equal(doc.getElementById('hs-price-read').textContent, '5억 2,000만원');
+  assert.match(doc.getElementById('hs-cost').textContent, /876만원/);
+});
+
+test('화면에 적힌 줄을 더하면 합계와 딱 맞는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 줄마다 반올림해 보여 주면서 합계만 온전한 값으로 내면, 눈으로 더해 봤을
+  // 때 1만원씩 어긋난다. 어떤 집값을 넣어도 어긋나지 않아야 한다.
+  [4000, 19000, 52000, 75000, 90000, 130000, 160000].forEach((집값) => {
+    [1, 2, 3].forEach((주택수) => {
+      const r = win.houseCost({ 집값: 집값, 주택수: 주택수, 넓은집: true });
+      const 줄합 = r.취득세 + r.교육세 + r.농특세 + r.중개액 + r.중개부가세 +
+        r.인지세 + r.법무사;
+      assert.equal(줄합, r.부대비용,
+        `집값 ${집값} 주택수 ${주택수}: 줄 합계 ${줄합} ≠ ${r.부대비용}`);
+      assert.ok(Number.isInteger(r.부대비용), '만원 아래가 남아 있습니다');
+    });
+  });
+});
+
+test('빈칸이면 흔한 기본값으로 셈한다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 기본값이 화면과 계산 두 곳에 흩어져 있으면 서로 어긋난다. 계산 쪽에만 둔다.
+  const 빈칸 = win.houseCost({ 집값: 52000, 법무사: '', ltv: '', 계약금율: '' });
+  assert.equal(빈칸.법무사, 60);
+  assert.equal(빈칸.ltv, 70);
+  assert.equal(빈칸.계약금, 5200);
+
+  // 0 을 넣은 것은 '없다'는 뜻이므로 기본값으로 되돌리지 않는다
+  assert.equal(win.houseCost({ 집값: 52000, 법무사: 0 }).법무사, 0);
+});

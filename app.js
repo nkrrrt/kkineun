@@ -396,7 +396,7 @@ function categoryIdOf(kind, name) {
 /* 탭                                                                  */
 /* ------------------------------------------------------------------ */
 
-var TABS = ['calendar', 'list', 'stats', 'settings'];
+var TABS = ['calendar', 'list', 'stats', 'house', 'settings'];
 
 function showTab(tab) {
   state.tab = tab;
@@ -404,10 +404,12 @@ function showTab(tab) {
   $$('#tabbar button').forEach(function (b) {
     b.setAttribute('aria-selected', String(b.getAttribute('data-tab') === tab));
   });
-  var isSettings = tab === 'settings';
-  $('#header').hidden = isSettings;
-  $('#btn-add').hidden = isSettings;
-  if (isSettings) renderSettings();
+  // 달 고르개와 기록 단추는 가계부에 딸린 것이다. 설정과 집값 계산기에서는 뺀다.
+  var 가계부아님 = tab === 'settings' || tab === 'house';
+  $('#header').hidden = 가계부아님;
+  $('#btn-add').hidden = 가계부아님;
+  if (tab === 'settings') renderSettings();
+  if (tab === 'house') renderHouse();
   $('#screens').scrollTop = 0;
 }
 
@@ -861,6 +863,242 @@ function pickForScope(rows) {
   }).filter(function (r) { return r.total > 0; })
     .sort(function (a, b) { return b.total - a.total; });
 }
+
+/* ------------------------------------------------------------------ */
+/* 집값 계산기                                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 집 살 때 드는 돈을 셈한다. 값은 모두 만원 단위로 주고받는다.
+ *
+ * 세율은 자주 바뀌고 지역·주택수·면적에 따라 갈린다. 그래서 여기 적힌 것은
+ * '흔한 경우의 어림값'이고, 화면에서 직접 고쳐 넣을 수 있게 해 두었다.
+ * 규칙이 바뀌어도 앱을 고칠 필요 없이 숫자만 바꿔 쓰면 된다.
+ *
+ * 기준으로 삼은 것 (2026년 초):
+ *   취득세  1주택 6억 이하 1% · 6~9억 사이는 이어지는 값 · 9억 초과 3%
+ *           조정지역 2주택 8% · 3주택 이상 12%
+ *   지방교육세  취득세율의 10분의 1 (중과 구간은 0.4%)
+ *   농어촌특별세  전용 85㎡ 를 넘을 때만 0.2% (중과 구간은 0.6% · 1.0%)
+ *   중개보수  구간별 상한요율, 5천만·2억 아래 구간은 한도액이 따로 있다
+ *   인지세  1억~10억 15만원 같은 계단식
+ */
+
+/** 취득세율(%). 6~9억 사이는 6억에서 1%, 9억에서 3% 로 이어진다. */
+function 취득세율(집값만원, 주택수) {
+  if (주택수 >= 3) return 12;
+  if (주택수 === 2) return 8;
+  var 억 = 집값만원 / 10000;
+  if (억 <= 6) return 1;
+  if (억 >= 9) return 3;
+  return Math.round(((억 * 2 / 3) - 3) * 100000) / 100000;
+}
+
+/** 중개보수 상한. [요율%, 한도만원(없으면 0)] */
+function 중개보수요율(집값만원) {
+  if (집값만원 < 5000) return [0.6, 25];
+  if (집값만원 < 20000) return [0.5, 80];
+  if (집값만원 < 90000) return [0.4, 0];
+  if (집값만원 < 120000) return [0.5, 0];
+  if (집값만원 < 150000) return [0.6, 0];
+  return [0.7, 0];
+}
+
+/** 매매계약서에 붙는 인지세(만원). 계단식이다. */
+function 인지세(집값만원) {
+  if (집값만원 <= 1000) return 0;
+  if (집값만원 <= 3000) return 2;
+  if (집값만원 <= 5000) return 4;
+  if (집값만원 <= 10000) return 7;
+  if (집값만원 <= 100000) return 15;
+  return 35;
+}
+
+/**
+ * 집값 계산. 들어오고 나가는 값은 모두 만원 단위.
+ *
+ * 직접 넣은 세율(취득세율·중개보수)이 있으면 그것을 쓴다. 빈칸이면 위의
+ * 어림 규칙으로 채운다.
+ */
+function houseCost(입력) {
+  var 집값 = Math.max(0, Number(입력.집값) || 0);
+  var 가진돈 = Math.max(0, Number(입력.가진돈) || 0);
+  var 주택수 = Number(입력.주택수) || 1;
+  var 넓은집 = !!입력.넓은집;                       // 전용 85㎡ 초과 → 농어촌특별세
+
+  // 빈칸은 '알아서 하라'는 뜻이다. 기본값은 여기 한 군데에만 둔다.
+  var 빔 = function (v) { return v === '' || v === undefined || v === null; };
+  var 채움 = function (v, 기본) { return 빔(v) ? 기본 : Number(v) || 0; };
+
+  var ltv = 채움(입력.ltv, 70);
+  var 계약금율 = 채움(입력.계약금율, 10);
+  var 법무사 = 채움(입력.법무사, 60);
+  var 취득율 = 빔(입력.취득율) ? 취득세율(집값, 주택수) : Number(입력.취득율) || 0;
+  var 중과 = 주택수 >= 2;
+  var 교육율 = 중과 ? 0.4 : 취득율 / 10;
+  var 농특율 = !넓은집 ? 0 : (주택수 >= 3 ? 1.0 : 주택수 === 2 ? 0.6 : 0.2);
+
+  var 중개 = 중개보수요율(집값);
+  var 중개율 = 빔(입력.중개율) ? 중개[0] : Number(입력.중개율) || 0;
+  var 중개액 = 집값 * 중개율 / 100;
+  // 한도액은 어림 요율을 쓸 때만 매긴다. 직접 넣었으면 그 값을 그대로 믿는다.
+  if (빔(입력.중개율) && 중개[1]) 중개액 = Math.min(중개액, 중개[1]);
+
+  // 만원 아래는 여기서 떨군다. 화면에 줄마다 반올림해 보여 주면서 합계만
+  // 온전한 값으로 내면, 줄을 더해 봤을 때 합계와 1만원씩 어긋나 보인다.
+  var 반올림 = Math.round;
+  var 중개부가세 = 입력.중개부가세 === false ? 0 : 반올림(중개액 * 0.1);
+  중개액 = 반올림(중개액);
+
+  var 취득세 = 반올림(집값 * 취득율 / 100);
+  var 교육세 = 반올림(집값 * 교육율 / 100);
+  var 농특세 = 반올림(집값 * 농특율 / 100);
+  var 인지 = 인지세(집값);
+
+  var 세금계 = 취득세 + 교육세 + 농특세;
+  var 부대비용 = 세금계 + 중개액 + 중개부가세 + 인지 + 법무사;
+  var 총필요 = 집값 + 부대비용;
+
+  var 한도 = 반올림(집값 * ltv / 100);
+  var 필요대출 = Math.max(0, 총필요 - 가진돈);
+  var 계약금 = 반올림(집값 * 계약금율 / 100);
+  var 잔금 = 집값 - 계약금;
+  var 빌릴돈 = Math.min(필요대출, 한도);          // 한도를 넘겨 빌릴 수는 없다
+  var 잔금일내돈 = 잔금 - 빌릴돈 + 부대비용;
+
+  return {
+    집값: 집값, 가진돈: 가진돈,
+    취득율: 취득율, 교육율: 교육율, 농특율: 농특율,
+    취득세: 취득세, 교육세: 교육세, 농특세: 농특세, 세금계: 세금계,
+    중개율: 중개율, 중개액: 중개액, 중개부가세: 중개부가세,
+    인지세: 인지, 법무사: 법무사,
+    부대비용: 부대비용, 총필요: 총필요,
+    ltv: ltv, 한도: 한도, 필요대출: 필요대출, 빌릴돈: 빌릴돈,
+    // 한도로도 모자라면 이만큼 더 있어야 한다
+    모자란돈: Math.max(0, 필요대출 - 한도),
+    계약금: 계약금, 잔금: 잔금, 잔금일내돈: 잔금일내돈,
+    내돈합계: 계약금 + 잔금일내돈
+  };
+}
+
+/** 만원 단위 숫자를 '5억 2,000만원' 처럼 읽기 좋게. */
+function 억만(만원) {
+  var n = Math.round(Number(만원) || 0);
+  var 부호 = n < 0 ? '−' : '';
+  n = Math.abs(n);
+  if (!n) return '0원';
+  var 억 = Math.floor(n / 10000);
+  var 만 = n % 10000;
+  if (억 && 만) return 부호 + 억 + '억 ' + 만.toLocaleString('ko-KR') + '만원';
+  if (억) return 부호 + 억 + '억원';
+  return 부호 + 만.toLocaleString('ko-KR') + '만원';
+}
+
+
+/* ---------- 집값 계산기 화면 ---------- */
+
+var HOUSE_KEEP = 'house';
+var HOUSE_FIELDS = [
+  ['hs-price', '집값'], ['hs-cash', '가진돈'], ['hs-homes', '주택수'],
+  ['hs-big', '넓은집'], ['hs-tax-rate', '취득율'], ['hs-fee-rate', '중개율'],
+  ['hs-fee-vat', '중개부가세'], ['hs-legal', '법무사'], ['hs-ltv', 'ltv'],
+  ['hs-down', '계약금율']
+];
+
+/** 화면에 적힌 것을 계산에 넣을 모양으로 모은다. */
+function houseInput() {
+  var v = {};
+  HOUSE_FIELDS.forEach(function (f) {
+    var el = $('#' + f[0]);
+    if (!el) return;
+    v[f[1]] = el.type === 'checkbox' ? el.checked : el.value;
+  });
+  return v;   // 빈칸의 기본값은 houseCost 가 안다
+}
+
+function houseLine(이름, 값, 곁들임, 꾸밈) {
+  return '<div class="house-line ' + (꾸밈 || '') + '">' +
+    '<span>' + escapeHtml(이름) +
+      (곁들임 ? ' <span class="sub">' + escapeHtml(곁들임) + '</span>' : '') + '</span>' +
+    '<span class="n">' + escapeHtml(억만(값)) + '</span></div>';
+}
+
+/** 소수점이 붙는 세율은 끝의 0 을 떼어 짧게 보인다. 1.10% → 1.1% */
+function 율(n) {
+  return String(Math.round(Number(n || 0) * 1000) / 1000) + '%';
+}
+
+function renderHouse() {
+  var v = houseInput();
+  var r = houseCost(v);
+
+  $('#hs-price-read').textContent = r.집값 ? 억만(r.집값) : '얼마짜리 집인지 넣어보세요';
+  $('#hs-cash-read').textContent = r.가진돈 ? 억만(r.가진돈) : '';
+
+  if (!r.집값) {
+    ['#hs-loan', '#hs-cost', '#hs-flow'].forEach(function (id) {
+      $(id).innerHTML = '<div class="house-empty">집값을 넣으면 셈해 드려요</div>';
+    });
+    return;
+  }
+
+  $('#hs-loan').innerHTML =
+    houseLine('빌릴 수 있는 최대', r.한도, 'LTV ' + 율(r.ltv)) +
+    houseLine('받아야 할 대출', r.필요대출, '') +
+    (r.모자란돈
+      ? '<div class="house-note bad">한도로도 ' + escapeHtml(억만(r.모자란돈)) +
+        ' 이 모자라요. 가진 돈을 더 모으거나 집값을 낮춰야 해요.</div>'
+      : '<div class="house-note ok">한도 안에 들어와요. ' +
+        escapeHtml(억만(r.한도 - r.필요대출)) + ' 만큼 여유가 있어요.</div>');
+
+  $('#hs-cost').innerHTML =
+    houseLine('취득세', r.취득세, 율(r.취득율)) +
+    houseLine('지방교육세', r.교육세, 율(r.교육율)) +
+    (r.농특세 ? houseLine('농어촌특별세', r.농특세, 율(r.농특율)) : '') +
+    houseLine('중개보수', r.중개액, 율(r.중개율)) +
+    (r.중개부가세 ? houseLine('중개보수 부가세', r.중개부가세, '10%') : '') +
+    houseLine('인지세', r.인지세, '') +
+    houseLine('법무사·기타', r.법무사, '') +
+    houseLine('따로 드는 돈 합계', r.부대비용, '', 'total');
+
+  $('#hs-flow').innerHTML =
+    houseLine('계약할 때 — 계약금', r.계약금, 율(r.집값 ? r.계약금 / r.집값 * 100 : 0)) +
+    houseLine('잔금 치를 때 — 잔금', r.잔금, '') +
+    houseLine('빌리는 돈', -r.빌릴돈, '', 'step') +
+    houseLine('따로 드는 돈', r.부대비용, '', 'step') +
+    houseLine('그날 내가 낼 돈', r.잔금일내돈, '', 'total') +
+    houseLine('내 돈 모두 합쳐', r.내돈합계, '', 'total');
+}
+
+/** 넣은 값을 이 폰에 적어 둔다. 함께 쓰는 값이 아니라 혼자 만지작거리는 값이다. */
+function houseSave() {
+  var keep = {};
+  HOUSE_FIELDS.forEach(function (f) {
+    var el = $('#' + f[0]);
+    if (el) keep[f[0]] = el.type === 'checkbox' ? el.checked : el.value;
+  });
+  try { localStorage.setItem(HOUSE_KEEP, JSON.stringify(keep)); } catch (e) { /* 못 적어도 그만 */ }
+}
+
+function houseLoad() {
+  var keep = null;
+  try { keep = JSON.parse(localStorage.getItem(HOUSE_KEEP) || 'null'); } catch (e) { keep = null; }
+  if (!keep) return;
+  HOUSE_FIELDS.forEach(function (f) {
+    var el = $('#' + f[0]);
+    if (!el || keep[f[0]] === undefined) return;
+    if (el.type === 'checkbox') el.checked = !!keep[f[0]];
+    else el.value = keep[f[0]];
+  });
+}
+
+HOUSE_FIELDS.forEach(function (f) {
+  var el = $('#' + f[0]);
+  if (!el) return;
+  el.addEventListener('input', function () { renderHouse(); houseSave(); });
+  el.addEventListener('change', function () { renderHouse(); houseSave(); });
+});
+houseLoad();
 
 /* ------------------------------------------------------------------ */
 /* 은행 화면에서 뽑아낸 글자 읽기                                        */

@@ -335,14 +335,14 @@ button { cursor: pointer; }
 
 /* ── 하단 탭바 ── */
 .tabbar {
-  flex: 0 0 auto; z-index: 40; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  flex: 0 0 auto; z-index: 40; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
   background: var(--surface); border-top: 2px solid var(--edge);
   border-radius: 20px 20px 0 0; padding: 4px 0 2px;
   padding-bottom: calc(2px + env(safe-area-inset-bottom));
 }
 .tabbar button { border: 0; background: transparent; display: flex; flex-direction: column;
   align-items: center; gap: 3px; padding: 4px 0 6px; }
-.tabbar .bub { width: 46px; height: 28px; border-radius: 11px; display: grid; place-items: center;
+.tabbar .bub { width: 40px; height: 28px; border-radius: 11px; display: grid; place-items: center;
   color: var(--muted); border: 2px solid transparent; }
 .tabbar .lab { font-size: 10.5px; font-weight: 700; color: var(--muted); }
 .tabbar button[aria-selected='true'] .bub {
@@ -431,3 +431,41 @@ dialog::backdrop { background: rgba(24, 20, 40, 0.55); }
   background: var(--ink); color: var(--bg); padding: 9px 18px; border-radius: 999px;
   font-size: 14px; font-weight: 700; z-index: 60; border: 2px solid var(--edge);
 }
+
+/* ── 집값 계산기 ── */
+#screen-house .card { padding: 12px 15px; }
+.house-form { display: grid; gap: 2px; }
+.house-row { display: grid; grid-template-columns: 1fr auto; align-items: center;
+  gap: 10px; padding: 7px 0; }
+.house-row > span:first-child { font-size: 13.5px; font-weight: 700; }
+.house-input { display: inline-flex; align-items: center; gap: 5px; }
+.house-input input { width: 108px; text-align: right; padding: 7px 9px; font-size: 14px;
+  font-weight: 700; border: 2px solid var(--edge); border-radius: 11px;
+  background: var(--surface-2); color: var(--ink); }
+.house-input i { font-style: normal; font-size: 12px; font-weight: 700; color: var(--muted);
+  width: 24px; }
+.house-row select { padding: 7px 9px; font-size: 13px; font-weight: 700;
+  border: 2px solid var(--edge); border-radius: 11px; background: var(--surface-2); color: var(--ink); }
+.house-read { font-size: 12px; font-weight: 700; color: var(--muted); text-align: right;
+  margin: -4px 0 4px; min-height: 15px; }
+.house-check { display: flex; align-items: center; gap: 8px; padding: 8px 0 2px;
+  font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.house-check input { width: 18px; height: 18px; flex: 0 0 auto; }
+
+/* 결과 줄 — 이름은 왼쪽, 숫자는 오른쪽에 붙여 눈으로 훑기 좋게 */
+.house-line { display: grid; grid-template-columns: 1fr auto; gap: 10px;
+  padding: 6px 0; font-size: 13.5px; align-items: baseline; }
+.house-line .n { font-weight: 700; white-space: nowrap; }
+/* 곁들이는 말은 짧은 것만 옆에 붙인다. 긴 설명은 아예 넣지 않는다 — 붙이면
+   이름이 밀려 두 줄이 되고, 아래로 내리면 카드가 두 배로 길어진다. */
+.house-line .sub { font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.house-line.total { border-top: 2px dashed var(--line); margin-top: 4px; padding-top: 9px;
+  font-weight: 700; }
+.house-line.total .n { font-size: 15.5px; }
+.house-line.step { padding-left: 12px; color: var(--muted); }
+.house-note { margin-top: 9px; padding: 8px 10px; border-radius: 12px;
+  font-size: 12.5px; font-weight: 700; line-height: 1.5; }
+.house-note.ok { background: var(--income-soft); color: var(--income); }
+.house-note.bad { background: var(--expense-soft); color: var(--expense); }
+.house-more summary { font-size: 13px; font-weight: 700; cursor: pointer; }
+.house-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 10px 0; }

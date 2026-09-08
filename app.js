@@ -891,14 +891,16 @@ function pickForScope(rows) {
  *
  * 이름은 틀릴 수 있으므로 넣기 전에 고칠 수 있게 보여준다.
  */
-function parseBankText(text, baseYear) {
+function parseBankText(text, baseYear, baseMonth) {
   var year = baseYear || new Date().getFullYear();
   var lines = String(text || '').split(/\r?\n/)
     .map(function (l) { return l.trim(); })
     .filter(function (l) { return l; });
 
   var out = [];
-  var month = 0, day = 0;
+  // 화면 맨 위에만 달이 적히고 아래로는 '8일 화요일' 처럼 날만 있는 곳이 있다
+  // (네이버페이 결제내역). 그럴 때 쓰라고 지금 보고 있는 달을 받아 둔다.
+  var month = Number(baseMonth) || 0, day = 0;
   var buffer = [];
   var before = null;      // 바로 앞 날짜 머리글. 거래내역은 최신순이라 이보다 뒤일 수 없다.
 
@@ -977,10 +979,13 @@ function parseBankText(text, baseYear) {
     //
     // 그 위에 조건을 더 건다 — 이미 날짜를 봤고, 은행 목록은 늘 최신순이니
     // 앞 날짜보다 앞선 날이어야 하고, 뒤에 이름과 금액이 이어져야 한다.
-    var 날만 = month && before ? line.match(/^\s*0(\d{1,2})\s+(\S.*)$/) : null;
+    var 날만 = month && before ? line.match(/^\s*(\d{2})\s+(\S.*)$/) : null;
     if (날만) {
+      // '9.1' 이 '91', '9.2' 가 '22', '9.3' 이 '03' 으로 뭉개진다. 두 자리를
+      // 그대로 읽어 날이 되면 그것을 쓰고, 안 되면 끝자리만 남은 것으로 본다.
       var 날 = Number(날만[1]);
       var 뒤 = 날만[2];
+      if (!(날 >= 1 && 날 <= 31 && 날 < before.day)) 날 = 날 % 10;
       if (날 >= 1 && 날 < before.day && hasName(뒤) && hasMoney([뒤])) {
         flush();
         day = 날;
@@ -988,6 +993,24 @@ function parseBankText(text, baseYear) {
         buffer.push(뒤);
         return;
       }
+    }
+
+    // 9월 — 화면 맨 위의 달 머리글. 아래 줄들은 날만 적혀 온다.
+    var 달만 = line.match(/^\D{0,3}(\d{1,2})\s*월\s*$/);
+    if (달만 && Number(달만[1]) >= 1 && Number(달만[1]) <= 12) {
+      flush();
+      month = Number(달만[1]);
+      before = null;
+      return;
+    }
+
+    // 8일 화요일 — 날만 있는 머리글. 달은 화면 맨 위에서 받아 둔 것을 쓴다.
+    var 일만 = month ? line.match(/^\D{0,3}(\d{1,2})\s*일(?:\s*[월화수목금토일]\s*요일)?\s*$/) : null;
+    if (일만 && Number(일만[1]) >= 1 && Number(일만[1]) <= 31) {
+      flush();
+      day = Number(일만[1]);
+      before = { month: month, day: day };
+      return;
     }
 
     // 시각으로 한 건이 끝난다. 앞에 아이콘이 글자로 섞여 들어오기도 한다.
@@ -1003,8 +1026,17 @@ function parseBankText(text, baseYear) {
     // 다만 이미 부호 붙은 금액을 본 뒤라면, 뒤따르는 부호 없는 금액은 잔액이다.
     // (…-820원 / 어느페이 302,765원 — 뒷줄은 새 건이 아니라 이름의 나머지다)
     // 카드 명세서에는 부호가 아예 없으므로 이 예외에 걸리지 않는다.
+    // 금액과 이름이 줄을 나눠 서는 화면도 있다 (네이버페이 결제내역).
+    //
+    //   -18,850원
+    //   (주)어느제과 | 네이버페이 우리카드 체크
+    //   -10,500원                ← 이름이 없어도 여기서 새 건이 시작된 것이다
+    //
+    // 그래서 '새 줄에 이름이 있는가' 가 아니라 '읽던 건이 이미 다 찼는가' 로
+    // 가른다. 금액도 이름도 갖춘 건을 읽고 있는데 또 금액이 나오면 새 건이다.
+    var 읽던건이참 = hasMoney(buffer) && buffer.some(hasName);
     var 잔액인듯 = hasSigned(buffer) && !hasSigned([line]);
-    if (!시각으로나뉨 && hasMoney([line]) && hasName(line) && hasMoney(buffer) && !잔액인듯) flush();
+    if (!시각으로나뉨 && hasMoney([line]) && 읽던건이참 && !잔액인듯) flush();
     buffer.push(line);
   });
   flush();
@@ -1024,7 +1056,23 @@ function parseBankText(text, baseYear) {
  *   3) 앞에 부호가 있다 (-450)
  * 그냥 숫자 뭉치(상호 속 숫자, 깨진 시각 1133)는 금액으로 보지 않는다.
  */
+/**
+ * 숫자 자리에 선 빗금을 7 로 되돌린다.
+ *
+ * '7,200원' 이 '/,200원' 으로 읽힌다. 쉼표 앞은 숫자 자리이므로 거기 선
+ * 빗금은 7 이다. 안 고치면 7,200원이 200원이 된다. 숫자가 뒤따르는
+ * 빗금('-/72,580원' 의 것)은 그냥 찌꺼기라 손대지 않는다.
+ *
+ * 금액을 세는 쪽과 이름에서 금액을 걷어내는 쪽이 같은 글자를 봐야 하므로
+ * 따로 떼어 두었다. 두 번 걸어도 결과는 같다.
+ */
+function fixDigits(line) {
+  return String(line || '').replace(/[\/l|]\s*([,.]\d{3})/g, '7$1');
+}
+
 function moneyIn(line) {
+  line = fixDigits(line);
+
   // 천 단위 쉼표가 마침표로 읽히기도 한다(14,900 → 14.900). 원화에는 소수점이
   // 없으니 세 자리가 뒤따르는 마침표는 쉼표로 본다. 시각(13:09)이 마침표로
   // 읽혀도 뒤가 두 자리라 여기에 걸리지 않는다.
@@ -1288,8 +1336,41 @@ function dropBrandTail(text) {
   return v;
 }
 
+/**
+ * 상호 뒤에 막대로 붙은 결제수단을 떼어 낸다.
+ *
+ *   쿠팡 | 네이버페이 우리카드 체크   →  쿠팡
+ *   AKPLAZA 수원점 |네이버페이 …      →  AKPLAZA 수원점
+ *
+ * 막대만 보고 자르면 안 된다. 'T' 가 한글 낱자 'ㅣ' 로 읽힌 '카카오 ㅣ 바이크'
+ * 가 '카카오' 로 잘려 버린다. 그래서 막대 뒤가 결제수단으로 보일 때만 자른다.
+ */
+function cutPaymentTail(text) {
+  var v = String(text || '');
+  var m = v.match(/^(.*?)[<\s]*[|ㅣ]\s*(.+)$/);
+  if (!m || !m[1].trim()) return v;
+  return /카드|페이|체크|신용|계좌|은행|결제/.test(m[2]) ? m[1].trim() : v;
+}
+
+/**
+ * 상호 뒤 괄호에 같은 상호가 한 번 더 적힌 것을 지운다.
+ *
+ *   씨유(CU)권선  →  CU (0ㅇ4)권선  →  CU 권선
+ *
+ * 은행 내역은 한글 상호와 영문 상호를 나란히 적는다. 앞의 것을 이미 알아본
+ * 뒤라면 괄호 안은 같은 이름을 되풀이할 뿐이라 자리만 차지한다. 괄호 안이
+ * 정말 같은 상호일 때만 지우므로, '어느가게(본점)' 같은 것은 그대로 남는다.
+ */
+function dropBrandEcho(text) {
+  var v = String(text || '');
+  var m = v.match(/^(\S+)\s*\(([^)]{1,8})\)\s*(.*)$/);
+  if (!m || !isBrandHead(m[1])) return v;
+  if (fixBrand(unmaskBrand(m[2])).split(' ')[0] !== m[1]) return v;
+  return (m[1] + ' ' + m[3]).trim();
+}
+
 function tidyName(text) {
-  var v = fixBrand(unmaskBrand(fuseSplitLetters(text).replace(/\s+/g, ' ').trim()));
+  var v = fixBrand(unmaskBrand(cutPaymentTail(fuseSplitLetters(text).replace(/\s+/g, ' ').trim())));
 
   for (var i = 0; i < 2; i++) {
     var m = v.match(/^(\S{1,2})\s+(\S.*)$/);
@@ -1302,7 +1383,7 @@ function tidyName(text) {
     v = fixBrand(unmaskBrand(m[2]));   // 찌꺼기를 떼고 나면 상호가 드러나기도 한다
   }
 
-  v = dropBrandTail(cutBeforeCorp(v));
+  v = dropBrandTail(dropBrandEcho(cutBeforeCorp(v)));
 
   return v
     .replace(/^[^\uAC00-\uD7A3\u3131-\u318E0-9A-Za-z(]+/, '')
@@ -1444,6 +1525,7 @@ function buildRow(buffer, year, month, day) {
   var 본금액 = 0;
 
   buffer.forEach(function (line) {
+    line = fixDigits(line);   // 금액을 세는 쪽과 같은 글자를 봐야 걷어낼 수 있다
     // 빼기 부호는 금액에서 멀리 떨어져 인식되기도 한다. 줄 전체를 보고 판단한다.
     var minus = /[\-\u2212]/.test(line);
     var plus = /\+/.test(line);
@@ -1797,7 +1879,8 @@ function readShots(files, onStep) {
             .then(function (canvas) { shot = canvas; return ocr.worker.recognize(canvas); })
             .then(function (res) {
               var year = state.month ? Number(state.month.slice(0, 4)) : 0;
-              var rows = parseBankText(res.data.text, year);
+      var 달 = state.month ? Number(state.month.slice(5, 7)) : 0;
+              var rows = parseBankText(res.data.text, year, 달);
               // 영어 상호가 섞여 있을 때만 영어판으로 한 번 더 읽는다
               if (!needsEnglishPass(rows)) return rows;
               onStep('영어로 된 가게 이름을 다시 읽는 중…', (i + 0.5) / files.length);
@@ -1982,7 +2065,9 @@ $('#form-paste').addEventListener('submit', function (e) {
   var text = $('#paste-text').value;
   if (!text.trim()) { showError($('#paste-error'), '붙여넣은 글자가 없어요.'); return; }
 
-  var rows = parseBankText(text, state.month ? Number(state.month.slice(0, 4)) : 0);
+  var rows = parseBankText(text,
+    state.month ? Number(state.month.slice(0, 4)) : 0,
+    state.month ? Number(state.month.slice(5, 7)) : 0);
   if (!rows.length) {
     showError($('#paste-error'), '내역을 찾지 못했어요. 날짜와 금액이 함께 들어 있는지 봐주세요.');
     return;

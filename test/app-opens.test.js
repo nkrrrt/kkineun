@@ -2051,3 +2051,78 @@ test('빈칸이면 흔한 기본값으로 셈한다', { skip }, async () => {
   // 0 을 넣은 것은 '없다'는 뜻이므로 기본값으로 되돌리지 않는다
   assert.equal(win.houseCost({ 집값: 52000, 법무사: 0 }).법무사, 0);
 });
+
+test('원리금균등은 달마다 같은 돈을 낸다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 3억 6,400만원을 30년 4.8% 로 빌리면 달마다 191만원쯤 낸다
+  const p = win.loanPlan(36400, 30, 4.8, '원리금균등');
+  assert.equal(p.월납, 191);
+  assert.equal(p.첫달, p.마지막달, '원리금균등은 첫 달과 마지막 달이 같습니다');
+  assert.equal(p.달수, 360);
+  assert.equal(p.총이자, 32352);
+});
+
+test('원금균등은 첫 달이 무겁고 이자를 덜 낸다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  const 원리금 = win.loanPlan(36400, 30, 4.8, '원리금균등');
+  const 원금 = win.loanPlan(36400, 30, 4.8, '원금균등');
+
+  assert.ok(원금.첫달 > 원리금.월납, '원금균등 첫 달이 더 무거워야 합니다');
+  assert.ok(원금.마지막달 < 원리금.월납, '원금균등 마지막 달이 더 가벼워야 합니다');
+  assert.ok(원금.총이자 < 원리금.총이자, '원금균등이 이자를 덜 내야 합니다');
+  assert.equal(원금.첫달, 247);
+  assert.equal(원금.마지막달, 102);
+});
+
+test('갚는 셈도 앞뒤가 맞는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 원금 + 이자가 총액과 어긋나 보이면 안 된다
+  [[36400, 30, 4.8], [10000, 10, 3.2], [50000, 40, 6], [7000, 5, 0]].forEach((c) => {
+    ['원리금균등', '원금균등'].forEach((방식) => {
+      const p = win.loanPlan(c[0], c[1], c[2], 방식);
+      assert.equal(p.총상환, c[0] + p.총이자,
+        `${c.join('/')} ${방식}: ${p.총상환} ≠ ${c[0]} + ${p.총이자}`);
+    });
+  });
+});
+
+test('금리가 0이거나 빌릴 돈이 없어도 셈이 깨지지 않는다', { skip }, async () => {
+  const { win } = openApp();
+  await wait(200);
+
+  // 금리가 없으면 원금을 달수로 나누기만 한다
+  const 무이자 = win.loanPlan(36000, 30, 0, '원리금균등');
+  assert.equal(무이자.월납, 100);
+  assert.equal(무이자.총이자, 0);
+
+  // 0 으로 나누는 자리가 없어야 한다
+  ['원리금균등', '원금균등'].forEach((방식) => {
+    assert.equal(win.loanPlan(0, 30, 4.8, 방식).총상환, 0);
+    assert.equal(win.loanPlan(36400, 0, 4.8, 방식).총상환, 0);
+  });
+});
+
+test('갚는 칸이 화면에 나오고 방식을 바꾸면 따라 바뀐다', { skip }, async () => {
+  const { doc, win } = openApp();
+  await wait(300);
+
+  win.showTab('house');
+  doc.getElementById('hs-price').value = '52000';
+  doc.getElementById('hs-cash').value = '25000';
+  win.renderHouse();
+
+  const 칸 = doc.getElementById('hs-repay-out');
+  assert.match(칸.textContent, /달마다/);
+  assert.match(칸.textContent, /30년 · 4.8%/, '만기와 금리 기본값이 보여야 합니다');
+
+  doc.getElementById('hs-repay').value = '원금균등';
+  win.renderHouse();
+  assert.match(칸.textContent, /첫 달/);
+  assert.match(칸.textContent, /마지막 달/);
+});

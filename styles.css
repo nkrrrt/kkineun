@@ -469,3 +469,4 @@ dialog::backdrop { background: rgba(24, 20, 40, 0.55); }
 .house-note.bad { background: var(--expense-soft); color: var(--expense); }
 .house-more summary { font-size: 13px; font-weight: 700; cursor: pointer; }
 .house-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 10px 0; }
+.house-split { border-top: 2px dashed var(--line); margin: 8px 0 2px; }

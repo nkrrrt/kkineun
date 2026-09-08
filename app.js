@@ -981,6 +981,51 @@ function houseCost(입력) {
   };
 }
 
+/**
+ * 빌린 돈을 어떻게 갚게 되는지 셈한다. 값은 모두 만원 단위.
+ *
+ * 두 가지 방식이 있다.
+ *   원리금균등  달마다 같은 돈을 낸다. 처음엔 이자가 많고 갈수록 원금이 는다.
+ *   원금균등    원금을 똑같이 나눠 갚고 남은 돈에만 이자를 낸다. 첫 달이
+ *               가장 무겁고 갈수록 가벼워진다. 이자를 덜 낸다.
+ *
+ * 총 갚는 돈은 반올림한 이자에서 되짚어 낸다. 원금 + 이자가 총액과 어긋나
+ * 보이면 안 되기 때문이다.
+ */
+function loanPlan(원금, 년, 연이율, 방식) {
+  원금 = Math.max(0, Number(원금) || 0);
+  var n = Math.round((Number(년) || 0) * 12);
+  var r = (Number(연이율) || 0) / 100 / 12;
+  var 빔 = { 월납: 0, 첫달: 0, 마지막달: 0, 총이자: 0, 총상환: 0, 달수: n };
+  if (!원금 || n <= 0) return 빔;
+
+  if (방식 === '원금균등') {
+    var 월원금 = 원금 / n;
+    // 남은 원금에만 이자가 붙으니, 이자 총액은 (원금 × 월이율 × (달수+1) / 2)
+    var 이자 = Math.round(원금 * r * (n + 1) / 2);
+    return {
+      월납: 0,
+      첫달: Math.round(월원금 + 원금 * r),
+      마지막달: Math.round(월원금 * (1 + r)),
+      총이자: 이자,
+      총상환: 원금 + 이자,
+      달수: n
+    };
+  }
+
+  // 원리금균등 — 달마다 같은 돈
+  var 월납 = r === 0 ? 원금 / n : 원금 * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1);
+  var 총이자 = Math.round(월납 * n) - 원금;
+  return {
+    월납: Math.round(월납),
+    첫달: Math.round(월납),
+    마지막달: Math.round(월납),
+    총이자: 총이자,
+    총상환: 원금 + 총이자,
+    달수: n
+  };
+}
+
 /** 만원 단위 숫자를 '5억 2,000만원' 처럼 읽기 좋게. */
 function 억만(만원) {
   var n = Math.round(Number(만원) || 0);
@@ -1002,7 +1047,8 @@ var HOUSE_FIELDS = [
   ['hs-price', '집값'], ['hs-cash', '가진돈'], ['hs-homes', '주택수'],
   ['hs-big', '넓은집'], ['hs-tax-rate', '취득율'], ['hs-fee-rate', '중개율'],
   ['hs-fee-vat', '중개부가세'], ['hs-legal', '법무사'], ['hs-ltv', 'ltv'],
-  ['hs-down', '계약금율']
+  ['hs-down', '계약금율'], ['hs-years', '만기'], ['hs-rate', '금리'],
+  ['hs-repay', '갚는방식']
 ];
 
 /** 화면에 적힌 것을 계산에 넣을 모양으로 모은다. */
@@ -1036,7 +1082,7 @@ function renderHouse() {
   $('#hs-cash-read').textContent = r.가진돈 ? 억만(r.가진돈) : '';
 
   if (!r.집값) {
-    ['#hs-loan', '#hs-cost', '#hs-flow'].forEach(function (id) {
+    ['#hs-loan', '#hs-cost', '#hs-flow', '#hs-repay-out'].forEach(function (id) {
       $(id).innerHTML = '<div class="house-empty">집값을 넣으면 셈해 드려요</div>';
     });
     return;
@@ -1068,6 +1114,33 @@ function renderHouse() {
     houseLine('따로 드는 돈', r.부대비용, '', 'step') +
     houseLine('그날 내가 낼 돈', r.잔금일내돈, '', 'total') +
     houseLine('내 돈 모두 합쳐', r.내돈합계, '', 'total');
+
+  renderRepay(r.빌릴돈, v);
+}
+
+/** 빌린 돈을 어떻게 갚게 되는지. */
+function renderRepay(대출금, v) {
+  var 년 = v.만기 === '' || v.만기 === undefined ? 30 : Number(v.만기) || 0;
+  var 이율 = v.금리 === '' || v.금리 === undefined ? 4.8 : Number(v.금리) || 0;
+  var 방식 = v.갚는방식 || '원리금균등';
+  var p = loanPlan(대출금, 년, 이율, 방식);
+  var box = $('#hs-repay-out');
+
+  if (!대출금) {
+    box.innerHTML = '<div class="house-empty">빌릴 돈이 정해지면 셈해 드려요</div>';
+    return;
+  }
+
+  var 달마다 = 방식 === '원금균등'
+    ? houseLine('첫 달', p.첫달, '') + houseLine('마지막 달', p.마지막달, '')
+    : houseLine('달마다', p.월납, 년 + '년 · ' + 이율 + '%');
+
+  box.innerHTML =
+    '<div class="house-split"></div>' +
+    houseLine('빌리는 돈', 대출금, '') +
+    달마다 +
+    houseLine('이자로만', p.총이자, '') +
+    houseLine('다 갚으면', p.총상환, p.달수 + '달', 'total');
 }
 
 /** 넣은 값을 이 폰에 적어 둔다. 함께 쓰는 값이 아니라 혼자 만지작거리는 값이다. */

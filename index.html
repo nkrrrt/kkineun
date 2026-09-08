@@ -35,7 +35,7 @@
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <link rel="stylesheet" href="styles.css?v=20260908b" />
+  <link rel="stylesheet" href="styles.css?v=20260908c" />
 </head>
 <body>
 
@@ -209,6 +209,26 @@
 
     <div class="section-title">주택담보대출</div>
     <div class="card" id="hs-loan"></div>
+
+    <div class="section-title">달마다 갚는 돈</div>
+    <div class="card house-form">
+      <label class="house-row">
+        <span>만기</span>
+        <span class="house-input"><input type="number" id="hs-years" inputmode="numeric" min="1" max="50" placeholder="30" /><i>년</i></span>
+      </label>
+      <label class="house-row">
+        <span>금리</span>
+        <span class="house-input"><input type="number" id="hs-rate" inputmode="decimal" step="0.1" min="0" placeholder="4.8" /><i>%</i></span>
+      </label>
+      <label class="house-row">
+        <span>갚는 방식</span>
+        <select id="hs-repay">
+          <option value="원리금균등">원리금균등 (달마다 같은 돈)</option>
+          <option value="원금균등">원금균등 (갈수록 가벼워짐)</option>
+        </select>
+      </label>
+      <div id="hs-repay-out"></div>
+    </div>
 
     <div class="section-title">따로 드는 돈</div>
     <div class="card" id="hs-cost"></div>
@@ -516,7 +536,7 @@
 </dialog>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="config.js?v=20260908b"></script>
-<script src="app.js?v=20260908b"></script>
+<script src="config.js?v=20260908c"></script>
+<script src="app.js?v=20260908c"></script>
 </body>
 </html>
